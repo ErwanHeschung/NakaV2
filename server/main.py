@@ -27,8 +27,10 @@ log = logging.getLogger("naka")
 async def lifespan(app: FastAPI):
     models.load()
     models.warmup()
+    watcher = asyncio.create_task(ops.idle_watcher())
     log.info("ready on %s:%s", settings.SERVER["host"], settings.SERVER["port"])
     yield
+    watcher.cancel()
     models.unload()
 
 
@@ -76,11 +78,13 @@ async def health():
 async def stt_endpoint(file: UploadFile):
     data = await file.read()
     start = time.perf_counter()
-    async with models.gpu_lock:
-        try:
-            text = await asyncio.to_thread(stt.transcribe, data)
-        except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e)) from e
+    async with ops.Busy():
+        await ops.ensure_loaded()
+        async with models.gpu_lock:
+            try:
+                text = await asyncio.to_thread(stt.transcribe, data)
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=str(e)) from e
     elapsed = (time.perf_counter() - start) * 1000
     log.info("stt %.0fms %r", elapsed, text)
     return {"text": text, "ms": round(elapsed)}
@@ -89,6 +93,9 @@ async def stt_endpoint(file: UploadFile):
 @app.post("/chat")
 async def chat_endpoint(body: TextIn):
     """Newline-delimited JSON, one object per sentence, as they are produced."""
+    async with ops.Busy():
+        await ops.ensure_loaded()
+
     async def generate():
         start = time.perf_counter()
         first = None
@@ -158,6 +165,20 @@ async def ops_status():
     return ops.status()
 
 
+@app.post("/ops/wake")
+async def ops_wake():
+    """Start loading without waiting for it.
+
+    The client calls this the moment the talk key goes down, so the reload
+    overlaps with the user speaking instead of following it.
+    """
+    ops.touch()
+    if models.stt is not None and models.tts is not None:
+        return {"status": "already awake"}
+    asyncio.create_task(ops.ensure_loaded())
+    return {"status": "waking"}
+
+
 @app.post("/ops/unload")
 async def ops_unload(include_llm: bool = True):
     """Release the GPU for something else — a game, usually."""
@@ -180,9 +201,11 @@ async def agent_stop():
 @app.post("/tts")
 async def tts_endpoint(body: TextIn):
     start = time.perf_counter()
-    async with models.gpu_lock:
-        samples = await asyncio.to_thread(tts.synthesize, body.text)
-        audio = await asyncio.to_thread(tts.encode_opus, samples)
+    async with ops.Busy():
+        await ops.ensure_loaded()
+        async with models.gpu_lock:
+            samples = await asyncio.to_thread(tts.synthesize, body.text)
+            audio = await asyncio.to_thread(tts.encode_opus, samples)
     log.info("tts %.0fms %d samples", (time.perf_counter() - start) * 1000,
              samples.size)
     return StreamingResponse(iter([audio]), media_type="audio/ogg")
@@ -198,8 +221,10 @@ async def converse(file: UploadFile, agentic: bool = Form(AGENT["default_agentic
     data = await file.read()
     t_upload = (time.perf_counter() - start) * 1000
 
-    async with models.gpu_lock:
-        heard = await asyncio.to_thread(stt.transcribe, data)
+    async with ops.Busy():
+        await ops.ensure_loaded()
+        async with models.gpu_lock:
+            heard = await asyncio.to_thread(stt.transcribe, data)
     t_stt = (time.perf_counter() - start) * 1000
     log.info("upload %.0fms (%d KB) | stt %.0fms %r",
              t_upload, len(data) // 1024, t_stt - t_upload, heard)
@@ -214,24 +239,28 @@ async def converse(file: UploadFile, agentic: bool = Form(AGENT["default_agentic
         first_sound = None
         spoken = []
 
-        async for sentence in reply_stream(heard, agentic):
-            async with models.gpu_lock:
-                samples = await asyncio.to_thread(tts.synthesize, sentence)
-                chunk = await asyncio.to_thread(stream.push, samples)
-            spoken.append(sentence)
-            if not chunk:
-                # The Ogg muxer emits whole pages; until one is complete there
-                # is genuinely nothing to send, so this is not yet first sound.
-                continue
-            if first_sound is None:
-                first_sound = (time.perf_counter() - start) * 1000
-                log.info("FIRST SOUND %.0fms (first bytes on the wire)",
-                         first_sound)
-            yield chunk
+        # Its own span rather than one carried across the generator boundary,
+        # so a client that hangs up mid-reply still releases the marker.
+        async with ops.Busy():
+            async for sentence in reply_stream(heard, agentic):
+                async with models.gpu_lock:
+                    samples = await asyncio.to_thread(tts.synthesize, sentence)
+                    chunk = await asyncio.to_thread(stream.push, samples)
+                spoken.append(sentence)
+                if not chunk:
+                    # The Ogg muxer emits whole pages; until one is complete
+                    # there is nothing to send, so this is not yet first sound.
+                    continue
+                if first_sound is None:
+                    first_sound = (time.perf_counter() - start) * 1000
+                    log.info("FIRST SOUND %.0fms (first bytes on the wire)",
+                             first_sound)
+                yield chunk
 
-        tail = await asyncio.to_thread(stream.close)
-        if tail:
-            yield tail
+            tail = await asyncio.to_thread(stream.close)
+            if tail:
+                yield tail
+
         await remember(heard, " ".join(spoken))
         total = (time.perf_counter() - start) * 1000
         turnlog.record(

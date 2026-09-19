@@ -29,3 +29,13 @@ sample_rate = 24000
 # Opus is defined at 48 kHz; TTS output is resampled up to it.
 opus_sample_rate = 48000
 bitrate = 24000
+
+[ops]
+# Minutes without a request before the GPU is released automatically. Short is
+# fine: reloading costs about 8s, and the client starts the reload the moment
+# you press the talk key, so most of that is absorbed while you are speaking.
+# 0 disables idle unloading.
+idle_unload_minutes = 5
+# Whether idle unloading also stops the llama.cpp container. It holds 7.4 GB of
+# the 9.3 GB, so leaving it running defeats most of the point.
+idle_unload_llm = true

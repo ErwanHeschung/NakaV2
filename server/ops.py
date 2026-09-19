@@ -46,8 +46,89 @@ async def _compose(verb: str) -> str:
     return out.decode().strip()
 
 
+# Serialises load/unload against each other and against requests. Without it,
+# pre-warming from the client and a request arriving a moment later would both
+# start a load, and each would pay the full cost.
+_transition = asyncio.Lock()
+_last_activity = time.monotonic()
+# Requests currently being served. The idle watcher must not pull the models
+# out from under one, and a long reload must not count as idle time.
+_in_flight = 0
+
+
+def touch() -> None:
+    """Mark the assistant as in use, deferring the idle unload."""
+    global _last_activity
+    _last_activity = time.monotonic()
+
+
+def idle_seconds() -> float:
+    return time.monotonic() - _last_activity
+
+
+class Busy:
+    """Marks a request in flight, and refreshes the idle timer when it ends."""
+
+    async def __aenter__(self):
+        global _in_flight
+        _in_flight += 1
+        touch()
+        return self
+
+    async def __aexit__(self, *exc):
+        global _in_flight
+        _in_flight -= 1
+        touch()
+        return False
+
+
+async def ensure_loaded() -> None:
+    """Load if needed, or wait for a load already in flight. Idempotent."""
+    if models.stt is not None and models.tts is not None:
+        return
+    async with _transition:
+        if models.stt is None or models.tts is None:
+            log.info("waking on demand")
+            await _load_locked()
+
+
+async def idle_watcher() -> None:
+    """Release the GPU after a quiet spell.
+
+    The card is shared with games, so holding 9.3 GB through an evening of not
+    talking is the wrong default.
+    """
+    from . import settings
+
+    minutes = settings.OPS.get("idle_unload_minutes", 0)
+    if not minutes:
+        log.info("idle unloading disabled")
+        return
+
+    limit = minutes * 60
+    log.info("idle unload after %g minutes", minutes)
+    while True:
+        await asyncio.sleep(min(30.0, limit / 2))
+        if models.stt is None and models.tts is None:
+            continue
+        # _transition held means a load or unload is already running; a load
+        # in progress is emphatically not idleness.
+        if _in_flight or _transition.locked() or idle_seconds() < limit:
+            continue
+        log.info("idle for %.0fs — releasing the GPU", idle_seconds())
+        try:
+            await unload(settings.OPS.get("idle_unload_llm", True))
+        except Exception as e:
+            log.warning("idle unload failed: %s", e)
+
+
 async def unload(include_llm: bool = True) -> dict:
-    """Release the GPU. Models stay unloaded until /load is called."""
+    """Release the GPU. Models stay unloaded until something wakes them."""
+    async with _transition:
+        return await _unload_locked(include_llm)
+
+
+async def _unload_locked(include_llm: bool) -> dict:
     before = _vram_mb()
     start = time.perf_counter()
 
@@ -95,6 +176,11 @@ async def _await_llm(timeout: float = 120.0) -> bool:
 
 async def load() -> dict:
     """Bring everything back, warmed and ready to answer."""
+    async with _transition:
+        return await _load_locked()
+
+
+async def _load_locked() -> dict:
     before = _vram_mb()
     start = time.perf_counter()
 
@@ -105,6 +191,9 @@ async def load() -> dict:
 
     after = _vram_mb()
     elapsed = (time.perf_counter() - start) * 1000
+    # A cold reload can take half a minute; without this the watcher sees the
+    # load itself as idle time and unloads again immediately.
+    touch()
     log.info("reloaded in %.0fms, using %d MiB", elapsed, after - before)
     return {
         "status": "ready" if llm_ready else "degraded: llm not answering",

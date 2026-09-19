@@ -90,6 +90,14 @@ def to_wav(samples):
     return buffer.getvalue()
 
 
+def wake(client, url):
+    """Nudge the server to load, without waiting for it."""
+    try:
+        client.post(f"{url.rstrip('/')}/ops/wake", timeout=5.0)
+    except httpx.HTTPError:
+        pass  # the request itself will load if this did not
+
+
 def speak(client, url, wav_bytes, out, agentic):
     """POST the utterance and play the Opus reply as it streams back."""
     reader = ResponseReader()
@@ -183,6 +191,10 @@ def main():
     try:
         while True:
             held.wait()
+            # Wake the backend the instant the key goes down, so an idle
+            # reload overlaps with speaking instead of following it.
+            threading.Thread(target=wake, args=(client, args.url),
+                             daemon=True).start()
             print("listening...", end="", flush=True)
             samples = record(held)
             seconds = len(samples) / CAPTURE_RATE

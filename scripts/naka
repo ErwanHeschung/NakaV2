@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# Manual control. Add scripts/ to PATH, or call it by path:
+#
+#   naka unload     release the GPU now (~1.2s, frees ~9.3 GB)
+#   naka load       bring it back, warmed (~8s)
+#   naka status     VRAM and whether the models are resident
+#   naka start      start container + server
+#   naka stop       stop both
+#   naka logs       follow the log
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+URL="${NAKA_URL:-http://127.0.0.1:8000}"
+
+# 127.0.0.1 rather than localhost: on Windows that also resolves to ::1, and
+# the server is IPv4-only, so the IPv6 attempt stalls before falling back.
+api() {
+  local method="$1" path="$2"
+  curl -sS --max-time 300 -X "$method" "$URL$path" || {
+    echo "naka is not answering on $URL" >&2
+    exit 1
+  }
+  echo
+}
+
+case "${1:-status}" in
+  unload) api POST /ops/unload ;;
+  load)   api POST /ops/load ;;
+  wake)   api POST /ops/wake ;;
+  status) api GET  /ops/status ;;
+  start)  "$ROOT/scripts/start-naka.sh" ;;
+  stop)
+    pkill -f "bin/uvicorn server.main" 2>/dev/null || true
+    docker compose -f "$ROOT/compose.yml" stop llm
+    echo "stopped"
+    ;;
+  logs)   tail -f "$ROOT/logs/naka.log" ;;
+  *)
+    sed -n '2,10p' "$0" | sed 's/^# \?//'
+    exit 1
+    ;;
+esac
