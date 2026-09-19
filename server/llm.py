@@ -72,3 +72,33 @@ async def complete(messages: list[dict]) -> str:
         response = await client.post(url, json=_body(messages, False))
         response.raise_for_status()
         return response.json()["choices"][0]["message"]["content"]
+
+
+async def complete_with_tools(messages: list[dict], tools: list[dict]) -> dict:
+    """One non-streaming turn with tools offered. Returns the whole message.
+
+    Tool calls cannot be streamed usefully — nothing can be spoken until it is
+    known whether the model wants to talk or to act — so the agentic path
+    trades streaming for that decision.
+    """
+    url = f"{settings.LLM['url'].rstrip('/')}/v1/chat/completions"
+    body = _body(messages, stream=False)
+    if tools:
+        body["tools"] = tools
+        body["tool_choice"] = "auto"
+    async with httpx.AsyncClient(timeout=300.0) as client:
+        response = await client.post(url, json=body)
+        response.raise_for_status()
+        return response.json()["choices"][0]["message"]
+
+
+def split_sentences(text: str) -> list[str]:
+    """Split a finished reply the same way the streaming path splits a live one."""
+    out, buffer = [], text
+    while (match := SENTENCE_END.search(buffer)) is not None:
+        sentence, buffer = buffer[: match.end()].strip(), buffer[match.end():]
+        if sentence:
+            out.append(sentence)
+    if buffer.strip():
+        out.append(buffer.strip())
+    return out

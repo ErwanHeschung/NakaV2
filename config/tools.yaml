@@ -1,0 +1,60 @@
+# The allowlist. A tool that is not named here cannot be called, whatever the
+# model asks for — registration in code is not enough.
+#
+# There is deliberately no shell, no eval, no file-write outside notes_dir and
+# no network tool. The freedom to *chain* well-defined tools is what makes this
+# feel agentic; the freedom to run arbitrary code is what makes it dangerous,
+# and only the first is worth having. A quantised model hallucinating a
+# destructive command from an ambiguous sentence is a realistic scenario.
+
+agent:
+  # Hard ceiling on tool calls per request. The loop stops here whether or not
+  # the model thinks it is finished.
+  max_steps: 5
+  # Wall-clock ceiling for the whole loop, seconds.
+  timeout: 30
+  # Tools are only offered when the request asks for them (agentic: true).
+  default_agentic: false
+
+paths:
+  # The only directory any tool may read or write.
+  notes_dir: "~/naka-notes"
+
+tools:
+  get_time:
+    enabled: true
+    destructive: false
+
+  gpu_status:
+    enabled: true
+    destructive: false
+
+  set_timer:
+    enabled: true
+    destructive: false
+
+  list_timers:
+    enabled: true
+    destructive: false
+
+  cancel_timer:
+    enabled: true
+    # Cancelling a timer loses whatever it was for, and the user cannot get it
+    # back by waiting.
+    destructive: true
+
+  search_notes:
+    enabled: true
+    destructive: false
+
+  read_note:
+    enabled: true
+    destructive: false
+
+  write_note:
+    enabled: true
+    destructive: false
+
+  delete_note:
+    enabled: true
+    destructive: true

@@ -7,12 +7,13 @@ import logging
 import time
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, UploadFile
+from fastapi import FastAPI, Form, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from . import llm, models, settings, stt, tts
+from . import agent, llm, models, settings, stt, tts
 from .memory import memory
+from .tools.registry import AGENT, available
 
 logging.basicConfig(
     level=logging.INFO,
@@ -36,6 +37,33 @@ app = FastAPI(title="Naka", lifespan=lifespan)
 
 class TextIn(BaseModel):
     text: str
+    # Per request, never globally: most utterances are conversation and should
+    # not have tools in reach at all.
+    agentic: bool = AGENT["default_agentic"]
+
+
+def reply_stream(user_text: str, agentic: bool):
+    """Choose between plain streaming and the agentic loop.
+
+    A confirmation left pending by a previous turn takes priority: this
+    utterance is the user's answer to it, not a new request.
+    """
+    async def generate():
+        settled = await agent.resolve_pending(user_text)
+        if settled is not None:
+            for sentence in llm.split_sentences(settled):
+                yield sentence
+            return
+
+        messages = memory.messages(user_text)
+        if agentic:
+            async for sentence in agent.run(messages):
+                yield sentence
+        else:
+            async for sentence in llm.stream_sentences(messages):
+                yield sentence
+
+    return generate()
 
 
 @app.get("/health")
@@ -61,13 +89,11 @@ async def stt_endpoint(file: UploadFile):
 @app.post("/chat")
 async def chat_endpoint(body: TextIn):
     """Newline-delimited JSON, one object per sentence, as they are produced."""
-    messages = memory.messages(body.text)
-
     async def generate():
         start = time.perf_counter()
         first = None
         spoken = []
-        async for sentence in llm.stream_sentences(messages):
+        async for sentence in reply_stream(body.text, body.agentic):
             now = (time.perf_counter() - start) * 1000
             if first is None:
                 first = now
@@ -113,6 +139,27 @@ async def memory_forget():
     return {"status": "cleared"}
 
 
+@app.get("/tools")
+async def tools_state():
+    return {
+        "allowed": [
+            {"name": t.name, "destructive": t.destructive,
+             "description": t.description}
+            for t in available()
+        ],
+        "max_steps": AGENT["max_steps"],
+        "timeout_s": AGENT["timeout"],
+        "awaiting_confirmation": agent.pending,
+    }
+
+
+@app.post("/agent/stop")
+async def agent_stop():
+    """Kill switch. The client binds this to a hotkey."""
+    agent.kill_switch.trip()
+    return {"status": "stopping"}
+
+
 @app.post("/tts")
 async def tts_endpoint(body: TextIn):
     start = time.perf_counter()
@@ -125,7 +172,7 @@ async def tts_endpoint(body: TextIn):
 
 
 @app.post("/converse")
-async def converse(file: UploadFile):
+async def converse(file: UploadFile, agentic: bool = Form(AGENT["default_agentic"])):
     """Audio in, streamed Opus out. The whole loop, which is Phase 1's point."""
     # Clock starts before the body is read: the upload crosses the WSL2
     # boundary from the Windows client, and timing from after the read hides
@@ -148,7 +195,7 @@ async def converse(file: UploadFile):
         first_sound = None
         spoken = []
 
-        async for sentence in llm.stream_sentences(memory.messages(heard)):
+        async for sentence in reply_stream(heard, agentic):
             async with models.gpu_lock:
                 samples = await asyncio.to_thread(tts.synthesize, sentence)
                 chunk = await asyncio.to_thread(stream.push, samples)
