@@ -171,13 +171,63 @@ def _facts_limits():
     return FACTS.get("max", 25), FACTS.get("max_chars", 120)
 
 
-def _similar(a: str, b: str) -> bool:
-    """Rough overlap check, to stop the same fact being saved five ways."""
-    wa = {w for w in re.findall(r"[a-z']+", a.lower()) if len(w) > 3}
-    wb = {w for w in re.findall(r"[a-z']+", b.lower()) if len(w) > 3}
-    if not wa or not wb:
+# Verbs and fillers that say how someone relates to a subject rather than what
+# the subject is. Ignoring them means "loves hiking" and "does not like hiking"
+# compare as the same topic — which is the point, because a fact that reverses
+# must replace its predecessor rather than sit beside it.
+_PREDICATES = {
+    "loves", "love", "likes", "like", "liked", "hates", "hate", "prefers",
+    "prefer", "wants", "want", "enjoys", "enjoy", "dislikes", "dislike",
+    "does", "doesn", "didn", "isn", "aren", "avoid", "avoids", "really",
+    "very", "much", "more", "most", "always", "never", "still", "longer",
+    "anymore", "that", "this", "with", "from", "about", "their", "them",
+    "they", "have", "has", "had", "been", "being", "will", "would",
+    # Naming words: "a cat called Pixel" and "a dog called Rex" share only
+    # "called", which is not a shared subject.
+    "called", "named", "name",
+}
+
+
+def _identity_words() -> set[str]:
+    """The user's and assistant's own names carry no information here.
+
+    Every fact is about the same person, so their name appears throughout and
+    distinguishes nothing — treating it as a subject made "His name is Erwan"
+    match "Erwan does not like hiking", and the wrong fact was deleted.
+    """
+    from ..settings import IDENTITY
+    return {w for value in IDENTITY.values()
+            for w in re.findall(r"[a-z']+", str(value).lower())}
+
+
+def _topic(text: str) -> set[str]:
+    words = {w for w in re.findall(r"[a-z']+", text.lower()) if len(w) > 3}
+    return words - _PREDICATES - _identity_words() or words
+
+
+def _same_subject(a: str, b: str) -> bool:
+    """Whether two facts are about the same thing, however they judge it.
+
+    Deliberately compares subjects rather than whole sentences: the case that
+    matters is a fact being revised, and a revision shares its subject while
+    contradicting the claim.
+    """
+    ta, tb = _topic(a), _topic(b)
+    if not ta or not tb:
         return a.lower().strip() == b.lower().strip()
-    return len(wa & wb) / min(len(wa), len(wb)) >= 0.7
+    shared = ta & tb
+    if not shared:
+        return False
+    # One shared word is only convincing when that is all either fact is
+    # about; otherwise two subjects must line up before one replaces another.
+    if len(shared) == 1 and min(len(ta), len(tb)) > 1:
+        return False
+    return len(shared) / min(len(ta), len(tb)) >= 0.6
+
+
+# Kept as an alias: the guardrail tests and forget_fact both use it for
+# matching an existing fact loosely.
+_similar = _same_subject
 
 
 @tool(
@@ -214,9 +264,16 @@ def remember(fact: str):
             f"that is {len(fact)} characters; keep a fact under {max_chars}"
         )
 
-    for existing in memory.facts:
-        if _similar(fact, existing):
-            return f"Already known, near enough: '{existing}'"
+    for existing in list(memory.facts):
+        if not _same_subject(fact, existing):
+            continue
+        if existing.lower().strip() == fact.lower().strip():
+            return f"Already known: '{existing}'"
+        # Same subject, different claim: the newer statement wins. Keeping both
+        # is how a facts list ends up asserting that he loves and hates hiking.
+        memory.facts[memory.facts.index(existing)] = fact
+        memory.save_facts()
+        return f"Updated: '{existing}' is now '{fact}'"
 
     if len(memory.facts) >= max_facts:
         # Refusing rather than evicting something itself: which fact matters
@@ -234,23 +291,32 @@ def remember(fact: str):
 
 @tool(
     description=(
-        "Permanently forget one remembered fact, by quoting enough of it to "
-        "identify it. Use when something has stopped being true, or to make "
-        "room for something that matters more."
+        "Delete one remembered fact, by its number in the numbered list you "
+        "were given. Call this whenever the user asks you to forget "
+        "something, or tells you a fact is wrong or out of date. Saying you "
+        "have forgotten it does NOT forget it — this call is the only thing "
+        "that removes anything, so make the call in the same turn rather than "
+        "promising to."
     ),
     parameters={
-        "fact": {"type": "string",
-                 "description": "The fact to drop, or a distinctive part of it."}
+        "number": {"type": "integer",
+                   "description": "Which fact to drop, as numbered in the "
+                                  "list of things you know about them."}
     },
-    required=["fact"],
+    required=["number"],
 )
-def forget_fact(fact: str):
+def forget_fact(number: int):
     from ..memory import memory
 
-    needle = " ".join(fact.split()).lower()
-    for existing in list(memory.facts):
-        if needle in existing.lower() or _similar(fact, existing):
-            memory.facts.remove(existing)
-            memory.save_facts()
-            return f"Forgotten: '{existing}'"
-    return f"Nothing remembered matches '{fact}'."
+    if not memory.facts:
+        return "There is nothing remembered to forget."
+    if not 1 <= number <= len(memory.facts):
+        return (f"There is no fact {number}; they run from 1 to "
+                f"{len(memory.facts)}.")
+
+    dropped = memory.facts.pop(number - 1)
+    memory.save_facts()
+    # The remaining numbering is returned because it has just shifted, and a
+    # second deletion in the same turn would otherwise use stale numbers.
+    remaining = "; ".join(f"{i}. {f}" for i, f in enumerate(memory.facts, 1))
+    return f"Forgotten: '{dropped}'. Now: {remaining or 'nothing remembered'}"

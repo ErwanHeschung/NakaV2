@@ -102,8 +102,16 @@ class Memory:
     def system_prompt(self) -> str:
         parts = [self.persona]
         if self.facts:
-            parts.append("## What you know about him\n\n" +
-                         "\n".join(f"- {fact}" for fact in self.facts))
+            # Numbered so they can be referred to exactly. Deleting by matching
+            # the wording was ambiguous — every fact shares the user's name —
+            # and once removed the wrong one.
+            parts.append(
+                "## What you know about them\n\n"
+                "These are numbered so you can drop one precisely; the numbers "
+                "are for you, never say them aloud.\n\n"
+                + "\n".join(f"{i}. {fact}"
+                             for i, fact in enumerate(self.facts, 1))
+            )
         if self.summary:
             parts.append("## Earlier in this conversation\n\n" + self.summary)
         return "\n\n".join(parts)

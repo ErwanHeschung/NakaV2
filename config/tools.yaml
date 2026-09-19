@@ -75,6 +75,8 @@ tools:
 
   forget_fact:
     enabled: true
-    # Forgetting cannot be undone by waiting, and she cannot recover what the
-    # fact said once it is gone.
-    destructive: true
+    # Not gated behind confirmation, deliberately. A fact is cheap to restate
+    # and every deletion is recorded in logs/audit.jsonl with its wording, so
+    # the cost of a wrong one is low — whereas asking before each removal made
+    # the list tedious to keep honest, which is worse than the risk.
+    destructive: false
