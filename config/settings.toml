@@ -35,7 +35,7 @@ bitrate = 24000
 # fine: reloading costs about 8s, and the client starts the reload the moment
 # you press the talk key, so most of that is absorbed while you are speaking.
 # 0 disables idle unloading.
-idle_unload_minutes = 5
+idle_unload_minutes = 1
 # Whether idle unloading also stops the llama.cpp container. It holds 7.4 GB of
 # the 9.3 GB, so leaving it running defeats most of the point.
 idle_unload_llm = true

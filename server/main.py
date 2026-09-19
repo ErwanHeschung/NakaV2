@@ -5,6 +5,7 @@ import asyncio
 import json
 import logging
 import time
+from datetime import datetime
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Form, HTTPException, UploadFile
@@ -14,6 +15,24 @@ from pydantic import BaseModel
 from . import agent, llm, models, ops, settings, stt, tts, turnlog
 from .memory import memory
 from .tools.registry import AGENT, available
+
+def turn_note(woke: float) -> str:
+    """Per-turn context: the clock, and whether she has just been woken.
+
+    Injected just before the user's message rather than into the system
+    prompt, because it changes every turn and llama.cpp caches the longest
+    common prefix — putting a moving timestamp at position zero would throw
+    that cache away on every single reply.
+
+    She is given the time rather than told not to guess it: telling a model
+    not to invent a detail is far less reliable than removing its reason to.
+    """
+    now = datetime.now()
+    parts = [f"Right now it is {now.strftime('%H:%M on %A %d %B %Y')}."]
+    if woke:
+        parts.append(WOKE_NOTE.format(seconds=woke))
+    return " ".join(parts)
+
 
 # Waking is slow enough to need explaining — the models have to come back off
 # disk. Naka says so herself rather than reciting a canned line, so it stays in
@@ -108,8 +127,7 @@ async def chat_endpoint(body: TextIn):
     """Newline-delimited JSON, one object per sentence, as they are produced."""
     async with ops.Busy():
         woke = await ops.ensure_loaded()
-    messages = memory.messages(
-        body.text, WOKE_NOTE.format(seconds=woke) if woke else None)
+    messages = memory.messages(body.text, turn_note(woke))
 
     async def generate():
         start = time.perf_counter()
@@ -247,8 +265,7 @@ async def converse(file: UploadFile, agentic: bool = Form(AGENT["default_agentic
     if not heard:
         raise HTTPException(status_code=400, detail="no speech detected")
 
-    prompt = memory.messages(
-        heard, WOKE_NOTE.format(seconds=woke) if woke else None)
+    prompt = memory.messages(heard, turn_note(woke))
 
     async def generate():
         stream = tts.OpusStream()
