@@ -15,6 +15,7 @@ import io
 import queue
 import sys
 import threading
+import time
 import wave
 
 import av
@@ -89,9 +90,11 @@ def to_wav(samples):
     return buffer.getvalue()
 
 
-def speak(url, wav_bytes):
+def speak(url, wav_bytes, out):
     """POST the utterance and play the Opus reply as it streams back."""
     reader = ResponseReader()
+    marks = {}
+    start = time.perf_counter()
 
     def pump():
         try:
@@ -105,20 +108,30 @@ def speak(url, wav_bytes):
                               f"{response.text[:200]}", file=sys.stderr)
                         return
                     for chunk in response.iter_bytes():
+                        marks.setdefault("first_byte", time.perf_counter())
                         reader.feed(chunk)
         finally:
             reader.finish()
 
     threading.Thread(target=pump, daemon=True).start()
 
-    with sd.OutputStream(samplerate=PLAYBACK_RATE, channels=1,
-                         dtype="float32") as out:
-        container = av.open(reader, mode="r")
-        resampler = av.AudioResampler(format="flt", layout="mono",
-                                      rate=PLAYBACK_RATE)
-        for frame in container.decode(audio=0):
-            for resampled in resampler.resample(frame):
-                out.write(resampled.to_ndarray().reshape(-1).astype(np.float32))
+    # ffmpeg otherwise buffers several seconds of input deciding what the
+    # stream is; the format is known, so let it commit on the first packets.
+    container = av.open(reader, mode="r", format="ogg",
+                        options={"probesize": "4096", "analyzeduration": "0"})
+    marks["opened"] = time.perf_counter()
+    resampler = av.AudioResampler(format="flt", layout="mono",
+                                  rate=PLAYBACK_RATE)
+    for frame in container.decode(audio=0):
+        for resampled in resampler.resample(frame):
+            marks.setdefault("first_audio", time.perf_counter())
+            out.write(resampled.to_ndarray().reshape(-1).astype(np.float32))
+
+    def ms(key):
+        return f"{(marks[key] - start) * 1000:.0f}ms" if key in marks else "n/a"
+
+    print(f"  reply: first byte {ms('first_byte')} | "
+          f"decoder open {ms('opened')} | first audio {ms('first_audio')}")
 
 
 def main():
@@ -144,17 +157,29 @@ def main():
         on_release=lambda key: held.clear() if key == hotkey else None,
     ).start()
 
+    # Opened once and held: opening a WASAPI device costs hundreds of
+    # milliseconds, which would land squarely in the time-to-first-sound path.
+    out = sd.OutputStream(samplerate=PLAYBACK_RATE, channels=1,
+                          dtype="float32", latency="low")
+    out.start()
+
     print(f"hold {args.key} to talk, ctrl-c to quit")
-    while True:
-        held.wait()
-        print("listening...", end="", flush=True)
-        samples = record(held)
-        seconds = len(samples) / CAPTURE_RATE
-        if seconds < 0.3:
-            print(" too short, ignored")
-            continue
-        print(f" {seconds:.1f}s, thinking...")
-        speak(args.url, to_wav(samples))
+    try:
+        while True:
+            held.wait()
+            print("listening...", end="", flush=True)
+            samples = record(held)
+            seconds = len(samples) / CAPTURE_RATE
+            if seconds < 0.3:
+                print(" too short, ignored")
+                continue
+            print(f" {seconds:.1f}s, thinking...")
+            speak(args.url, to_wav(samples), out)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        out.stop()
+        out.close()
 
 
 if __name__ == "__main__":
