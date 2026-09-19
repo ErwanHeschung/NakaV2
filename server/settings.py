@@ -1,10 +1,16 @@
 import tomllib
 from pathlib import Path
 
-_PATH = Path(__file__).resolve().parent.parent / "config" / "settings.toml"
+_CONFIG = Path(__file__).resolve().parent.parent / "config"
 
-with _PATH.open("rb") as f:
-    _raw = tomllib.load(f)
+
+def _load(name):
+    with (_CONFIG / name).open("rb") as f:
+        return tomllib.load(f)
+
+
+_raw = _load("settings.toml")
+VOICE = _load("voice.toml")
 
 SERVER = _raw["server"]
 LLM = _raw["llm"]

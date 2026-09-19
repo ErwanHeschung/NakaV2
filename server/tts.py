@@ -11,17 +11,47 @@ import av
 import numpy as np
 import torch
 
-from . import models, settings
+from . import dsp, models, settings
 
 
-def synthesize(text: str) -> np.ndarray:
+_voice_cache: dict[str, torch.Tensor] = {}
+
+
+def resolve_voice(spec: str) -> str | torch.Tensor:
+    """Resolve a voice spec, which may be a weighted blend.
+
+    "af_heart" passes straight through; "af_heart:60,am_michael:40" is mixed
+    by weight. Kokoro's own comma syntax exists but only averages equally.
+    """
+    if ":" not in spec:
+        return spec
+    if spec in _voice_cache:
+        return _voice_cache[spec]
+
+    packs, weights = [], []
+    for part in spec.split(","):
+        name, _, weight = part.strip().partition(":")
+        packs.append(models.tts.load_single_voice(name.strip()))
+        weights.append(float(weight) if weight else 1.0)
+
+    total = sum(weights)
+    blended = sum(pack * (weight / total)
+                  for pack, weight in zip(packs, weights))
+    _voice_cache[spec] = blended
+    return blended
+
+
+def synthesize(text: str, apply_dsp: bool = True) -> np.ndarray:
     """Synthesise one sentence to mono float32 at the TTS sample rate."""
-    chunks = [audio for _, _, audio in
-              models.tts(text, voice=settings.TTS["voice"])]
+    voice = resolve_voice(settings.VOICE["voice"]["name"])
+    chunks = [audio for _, _, audio in models.tts(text, voice=voice)]
     if not chunks:
         return np.zeros(0, dtype=np.float32)
     wav = torch.cat(chunks) if len(chunks) > 1 else chunks[0]
-    return wav.detach().float().cpu().numpy()
+    samples = wav.detach().float().cpu().numpy()
+    if apply_dsp:
+        samples = dsp.process(samples, settings.TTS["sample_rate"])
+    return samples
 
 
 class OpusStream:

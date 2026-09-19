@@ -7,6 +7,9 @@ dependencies = [
     "fastapi>=0.141.1",
     "faster-whisper>=1.2.1",
     "kokoro>=0.9.4",
+    # Kokoro's G2P needs this spacy model and will silently download it at
+    # runtime if absent — a network call the project does not allow.
+    "en-core-web-sm",
     "python-multipart>=0.0.32",
     "torch",
     "torchaudio",
@@ -21,6 +24,7 @@ dependencies = [
 override-dependencies = ["torch==2.11.0", "torchaudio==2.11.0"]
 
 [tool.uv.sources]
+en-core-web-sm = { url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl" }
 torch = { index = "pytorch-cu128" }
 torchaudio = { index = "pytorch-cu128" }
 

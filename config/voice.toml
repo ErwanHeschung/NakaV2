@@ -1,0 +1,59 @@
+# Naka's voice. The TTS model supplies the speech; this file supplies the
+# character. Everything here is deterministic, so the voice sounds identical
+# from one sentence to the next — which an expressive TTS model does not
+# guarantee on its own.
+#
+# Re-render the demo set after changing anything:
+#   uv run python eval/voice_preview.py
+
+[voice]
+# Kokoro voice, or a blend: "af_heart:60,am_michael:40".
+name = "af_heart"
+
+[dsp]
+enabled = true
+
+[dsp.pitch]
+# Shifts formants along with pitch, which is what stops the result sounding
+# like a person. Past about 3 semitones it starts sounding like a chipmunk.
+semitones = 1.5
+
+[dsp.eq]
+# Telephone/radio band. Cutting the lows removes chest resonance (the main
+# cue that a real body produced the sound); cutting the highs removes air.
+highpass_hz = 200
+lowpass_hz = 7000
+# Slight presence lift so it stays intelligible after the band is narrowed.
+presence_hz = 2500
+presence_gain_db = 3.0
+
+[dsp.chorus]
+# Short doubling. Enough to suggest more than one source without audible
+# detuning.
+enabled = true
+in_gain = 0.7
+out_gain = 0.85
+delays_ms = 22.0
+decays = 0.35
+speeds_hz = 0.4
+depths_ms = 1.6
+
+[dsp.compressor]
+# Heavy, deliberately. Flattening the dynamics removes the breath-driven
+# loudness variation of a human talker.
+threshold_db = -22.0
+ratio = 6.0
+attack_ms = 8.0
+release_ms = 120.0
+makeup = 2.0
+
+[dsp.crusher]
+# Very light bit reduction. Off by default: it is the fastest way to make the
+# voice sound cheap rather than synthetic.
+enabled = false
+bits = 10.0
+mix = 0.15
+
+[dsp.limiter]
+# Catches the peaks the compressor's makeup gain creates.
+limit = 0.92
