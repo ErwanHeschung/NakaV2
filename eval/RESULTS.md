@@ -295,6 +295,33 @@ Recorded because each cost real time and none is obvious:
 
 ---
 
+## Addendum: what these numbers leave out
+
+Every figure above was measured **inside WSL2**, from a process sitting next to
+the server. The real product crosses a boundary these benchmarks never touch:
+the Windows client uploads audio into WSL and plays the reply back out.
+
+Measured from the actual client, first sound lands at **543–772 ms** rather than
+474 ms. The gap is the client's own capture-to-request and decode-to-speaker
+path, and it is the number that describes what a user hears.
+
+Getting there exposed two bugs in this project's own instrumentation, both of
+which made the pipeline look faster than it was:
+
+- The server clock started *after* `await file.read()`, so upload time was
+  excluded from every measurement recorded here.
+- `FIRST SOUND` was logged when a sentence finished synthesising, not when
+  bytes reached the wire. The Ogg muxer emits whole pages, so the two are not
+  the same moment.
+
+And one environment trap worth more than the rest combined: the client
+originally addressed the server as `localhost`, which on Windows resolves to
+`::1` as well as `127.0.0.1`. With the server bound to `0.0.0.0` there is no
+IPv6 listener, so every new connection stalled ~2.4 s on the IPv6 attempt
+before falling back — several times the entire latency budget. The tell was
+that the delay was constant to within a few milliseconds across requests:
+timeouts are flat, congestion is not.
+
 ## What this does not answer
 
 - No VAD, audio transport, Opus encoding or DSP is measured — those costs are
