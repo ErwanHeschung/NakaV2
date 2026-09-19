@@ -89,13 +89,18 @@ async def tts_endpoint(body: TextIn):
 @app.post("/converse")
 async def converse(file: UploadFile):
     """Audio in, streamed Opus out. The whole loop, which is Phase 1's point."""
-    data = await file.read()
+    # Clock starts before the body is read: the upload crosses the WSL2
+    # boundary from the Windows client, and timing from after the read hides
+    # that cost entirely.
     start = time.perf_counter()
+    data = await file.read()
+    t_upload = (time.perf_counter() - start) * 1000
 
     async with models.gpu_lock:
         heard = await asyncio.to_thread(stt.transcribe, data)
     t_stt = (time.perf_counter() - start) * 1000
-    log.info("stt %.0fms %r", t_stt, heard)
+    log.info("upload %.0fms (%d KB) | stt %.0fms %r",
+             t_upload, len(data) // 1024, t_stt - t_upload, heard)
 
     if not heard:
         raise HTTPException(status_code=400, detail="no speech detected")
@@ -109,12 +114,16 @@ async def converse(file: UploadFile):
             async with models.gpu_lock:
                 samples = await asyncio.to_thread(tts.synthesize, sentence)
                 chunk = await asyncio.to_thread(stream.push, samples)
+            spoken.append(sentence)
+            if not chunk:
+                # The Ogg muxer emits whole pages; until one is complete there
+                # is genuinely nothing to send, so this is not yet first sound.
+                continue
             if first_sound is None:
                 first_sound = (time.perf_counter() - start) * 1000
-                log.info("FIRST SOUND %.0fms", first_sound)
-            spoken.append(sentence)
-            if chunk:
-                yield chunk
+                log.info("FIRST SOUND %.0fms (first bytes on the wire)",
+                         first_sound)
+            yield chunk
 
         tail = await asyncio.to_thread(stream.close)
         if tail:

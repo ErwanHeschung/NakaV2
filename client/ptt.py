@@ -90,7 +90,7 @@ def to_wav(samples):
     return buffer.getvalue()
 
 
-def speak(url, wav_bytes, out):
+def speak(client, url, wav_bytes, out):
     """POST the utterance and play the Opus reply as it streams back."""
     reader = ResponseReader()
     marks = {}
@@ -98,18 +98,18 @@ def speak(url, wav_bytes, out):
 
     def pump():
         try:
-            with httpx.Client(timeout=300.0) as client:
-                with client.stream("POST", f"{url.rstrip('/')}/converse",
-                                   files={"file": ("speech.wav", wav_bytes,
-                                                   "audio/wav")}) as response:
-                    if response.status_code != 200:
-                        response.read()
-                        print(f"server said {response.status_code}: "
-                              f"{response.text[:200]}", file=sys.stderr)
-                        return
-                    for chunk in response.iter_bytes():
-                        marks.setdefault("first_byte", time.perf_counter())
-                        reader.feed(chunk)
+            with client.stream("POST", f"{url.rstrip('/')}/converse",
+                               files={"file": ("speech.wav", wav_bytes,
+                                               "audio/wav")}) as response:
+                marks["response"] = time.perf_counter()
+                if response.status_code != 200:
+                    response.read()
+                    print(f"server said {response.status_code}: "
+                          f"{response.text[:200]}", file=sys.stderr)
+                    return
+                for chunk in response.iter_bytes():
+                    marks.setdefault("first_byte", time.perf_counter())
+                    reader.feed(chunk)
         finally:
             reader.finish()
 
@@ -130,8 +130,8 @@ def speak(url, wav_bytes, out):
     def ms(key):
         return f"{(marks[key] - start) * 1000:.0f}ms" if key in marks else "n/a"
 
-    print(f"  reply: first byte {ms('first_byte')} | "
-          f"decoder open {ms('opened')} | first audio {ms('first_audio')}")
+    print(f"  upload+think {ms('response')} | first byte {ms('first_byte')} | "
+          f"first audio {ms('first_audio')}")
 
 
 def main():
@@ -143,8 +143,11 @@ def main():
 
     hotkey = getattr(keyboard.Key, args.key)
 
+    # One client for the session: a new connection per utterance pays a
+    # fresh handshake through the WSL2 localhost relay every time.
+    client = httpx.Client(timeout=300.0)
     try:
-        httpx.get(f"{args.url.rstrip('/')}/health", timeout=5.0).raise_for_status()
+        client.get(f"{args.url.rstrip('/')}/health", timeout=5.0).raise_for_status()
     except httpx.HTTPError as e:
         sys.exit(f"cannot reach Naka at {args.url}: {e}")
 
@@ -174,7 +177,7 @@ def main():
                 print(" too short, ignored")
                 continue
             print(f" {seconds:.1f}s, thinking...")
-            speak(args.url, to_wav(samples), out)
+            speak(client, args.url, to_wav(samples), out)
     except KeyboardInterrupt:
         pass
     finally:
