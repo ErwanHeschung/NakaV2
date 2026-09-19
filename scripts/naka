@@ -6,6 +6,8 @@
 #   naka status     VRAM and whether the models are resident
 #   naka start      start container + server
 #   naka stop       stop both
+#   naka memory     what she currently remembers
+#   naka history    the last few exchanges from the durable transcript
 #   naka logs       follow the log
 set -euo pipefail
 
@@ -33,6 +35,36 @@ case "${1:-status}" in
     pkill -f "bin/uvicorn server.main" 2>/dev/null || true
     docker compose -f "$ROOT/compose.yml" stop llm
     echo "stopped"
+    ;;
+  memory)
+    curl -sS "$URL/memory" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+print("FACTS  (config/facts.json - edit these, they persist)")
+for f in d["facts"]:
+    print("  -", f)
+print()
+print("SUMMARY  (older turns, compressed; lost on server restart)")
+print(" ", d["summary"] or "(nothing yet)")
+print()
+print("RECENT  (verbatim, %d kept)" % len(d["recent"]))
+for t in d["recent"]:
+    print("  you :", t["user"])
+    print("  naka:", t["naka"])
+print()
+print("%d turn(s) waiting to be folded into the summary" % d["pending_summary"])
+'
+    ;;
+  history)
+    tail -n "${2:-5}" "$ROOT/logs/turns.jsonl" | python3 -c '
+import json, sys
+for line in sys.stdin:
+    t = json.loads(line)
+    print("%s  (%sms)" % (t["at"], t["timings_ms"].get("total", 0)))
+    print("  you :", t["heard"])
+    print("  naka:", " ".join(t["spoken"])[:200])
+    print()
+'
     ;;
   logs)   tail -f "$ROOT/logs/naka.log" ;;
   *)
