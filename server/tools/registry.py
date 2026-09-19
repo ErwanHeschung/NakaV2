@@ -24,6 +24,7 @@ AUDIT = ROOT / "logs" / "audit.jsonl"
 _config = yaml.safe_load(CONFIG.read_text())
 AGENT = _config["agent"]
 PATHS = _config["paths"]
+FACTS = _config.get("facts", {})
 _allowlist = _config["tools"]
 
 NOTES_DIR = Path(PATHS["notes_dir"]).expanduser()

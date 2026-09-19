@@ -12,6 +12,9 @@ def _load(name):
 _raw = _load("settings.toml")
 VOICE = _load("voice.toml")
 
+IDENTITY = _raw.get("identity", {"assistant": "Naka", "user": "User",
+                                 "user_pronoun": "they",
+                                 "user_possessive": "their"})
 SERVER = _raw["server"]
 LLM = _raw["llm"]
 STT = _raw["stt"]

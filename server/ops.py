@@ -63,6 +63,10 @@ _last_activity = time.monotonic()
 # Requests currently being served. The idle watcher must not pull the models
 # out from under one, and a long reload must not count as idle time.
 _in_flight = 0
+# Whether the llama.cpp container is believed to be answering. None means we
+# have not checked since this process started — the container's state is
+# independent of ours, so it cannot be assumed.
+_llm_up: bool | None = None
 
 
 def touch() -> None:
@@ -91,17 +95,25 @@ class Busy:
         return False
 
 
-async def ensure_loaded() -> float:
-    """Load if needed, or wait for a load already in flight. Idempotent.
+def _fully_up() -> bool:
+    return models.stt is not None and models.tts is not None and _llm_up is True
 
-    Returns the seconds spent waking, or 0 if it was already awake, so the
-    caller can let Naka account for the pause herself.
+
+async def ensure_loaded() -> float:
+    """Bring up whatever is missing. Idempotent, and cheap when nothing is.
+
+    Checks the container as well as the local models: the two are separate
+    processes with separate lifetimes, and a restarted server loads its own
+    models at startup while the container may still be stopped. Checking only
+    the local side meant requests went out to a container that was not there.
+
+    Returns the seconds spent waking, or 0 if nothing was needed.
     """
-    if models.stt is not None and models.tts is not None:
+    if _fully_up():
         return 0.0
     start = time.perf_counter()
     async with _transition:
-        if models.stt is None or models.tts is None:
+        if not _fully_up():
             log.info("waking on demand")
             await _load_locked()
     return time.perf_counter() - start
@@ -147,8 +159,11 @@ async def _unload_locked(include_llm: bool) -> dict:
     before = _vram_mb()
     start = time.perf_counter()
 
+    global _llm_up
     models.unload()
     stopped = await _compose("stop") if include_llm else False
+    if stopped:
+        _llm_up = False
 
     torch.cuda.empty_cache()
     after = _vram_mb()
@@ -196,13 +211,22 @@ async def load() -> dict:
 
 
 async def _load_locked() -> dict:
+    global _llm_up
     before = _vram_mb()
     start = time.perf_counter()
 
-    started = await _compose("start")
-    llm_ready = await _await_llm() if started else False
-    await asyncio.to_thread(models.load)
-    await asyncio.to_thread(models.warmup)
+    # Each half is brought up only if it is actually missing, so waking one
+    # does not needlessly reload the other.
+    if _llm_up is not True:
+        started = await _compose("start")
+        llm_ready = await _await_llm() if started else False
+        _llm_up = llm_ready
+    else:
+        llm_ready = True
+
+    if models.stt is None or models.tts is None:
+        await asyncio.to_thread(models.load)
+        await asyncio.to_thread(models.warmup)
 
     after = _vram_mb()
     elapsed = (time.perf_counter() - start) * 1000
@@ -227,6 +251,7 @@ def status() -> dict:
         "vram_free_mb": 16303 - used,
         # Exposed because an idle unload that never fires is otherwise opaque:
         # these are the three things the watcher checks before acting.
+        "llm_up": _llm_up,
         "idle_seconds": round(idle_seconds()),
         "in_flight": _in_flight,
         "transition_locked": _transition.locked(),

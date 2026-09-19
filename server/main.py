@@ -66,7 +66,7 @@ async def lifespan(app: FastAPI):
     models.unload()
 
 
-app = FastAPI(title="Naka", lifespan=lifespan)
+app = FastAPI(title=settings.IDENTITY["assistant"], lifespan=lifespan)
 
 
 class TextIn(BaseModel):
@@ -154,6 +154,9 @@ async def remember(user_text: str, reply: str) -> None:
     user is not made to wait for it inside the latency budget.
     """
     memory.add_turn(user_text, reply)
+    # Both run off the response path: each is another generation, and neither
+    # is worth making the user wait for.
+    asyncio.create_task(memory.consider_fact(user_text, reply))
     if memory.needs_summary():
         asyncio.create_task(memory.summarise())
 

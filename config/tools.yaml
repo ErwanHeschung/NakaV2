@@ -20,6 +20,16 @@ paths:
   # The only directory any tool may read or write.
   notes_dir: "~/naka-notes"
 
+facts:
+  # Hard ceiling on remembered facts. They sit in the system prompt on every
+  # single turn, so this is a running cost, not storage. At the cap she must
+  # forget something before she can remember anything new — which forces the
+  # list to stay curated rather than becoming a diary.
+  max: 25
+  # Longest a single fact may be. A fact that needs more than this is a story,
+  # and stories belong in notes.
+  max_chars: 120
+
 tools:
   get_time:
     enabled: true
@@ -57,4 +67,14 @@ tools:
 
   delete_note:
     enabled: true
+    destructive: true
+
+  remember:
+    enabled: true
+    destructive: false
+
+  forget_fact:
+    enabled: true
+    # Forgetting cannot be undone by waiting, and she cannot recover what the
+    # fact said once it is gone.
     destructive: true

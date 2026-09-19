@@ -164,3 +164,93 @@ def delete_note(name: str):
         return f"There is no note called '{name}'."
     path.unlink()
     return f"Deleted note '{path.stem}'."
+
+
+def _facts_limits():
+    from .registry import FACTS
+    return FACTS.get("max", 25), FACTS.get("max_chars", 120)
+
+
+def _similar(a: str, b: str) -> bool:
+    """Rough overlap check, to stop the same fact being saved five ways."""
+    wa = {w for w in re.findall(r"[a-z']+", a.lower()) if len(w) > 3}
+    wb = {w for w in re.findall(r"[a-z']+", b.lower()) if len(w) > 3}
+    if not wa or not wb:
+        return a.lower().strip() == b.lower().strip()
+    return len(wa & wb) / min(len(wa), len(wb)) >= 0.7
+
+
+@tool(
+    description=(
+        "Save a fact about the user so it survives restarts. Call this "
+        "whenever they tell you something durable about themselves: allergies "
+        "and health, people close to them, strong preferences, constraints, "
+        "work that runs for months, how they want to be spoken to. Saying you "
+        "will remember does NOT remember it — this call is the only thing "
+        "that persists anything, so make it the first time you hear something "
+        "worth keeping. Do not save passing detail, what was said moments ago, "
+        "or anything this conversation already carries: the list is capped, "
+        "and trivia in it crowds out what matters."
+    ),
+    parameters={
+        "fact": {
+            "type": "string",
+            "description": "One short sentence, written in the third person, "
+                           "e.g. 'They prefer Rust over Go.'",
+        }
+    },
+    required=["fact"],
+)
+def remember(fact: str):
+    from ..memory import memory
+
+    fact = " ".join(fact.split())
+    max_facts, max_chars = _facts_limits()
+
+    if len(fact) < 8:
+        raise ValueError("that is too short to be a useful fact")
+    if len(fact) > max_chars:
+        raise ValueError(
+            f"that is {len(fact)} characters; keep a fact under {max_chars}"
+        )
+
+    for existing in memory.facts:
+        if _similar(fact, existing):
+            return f"Already known, near enough: '{existing}'"
+
+    if len(memory.facts) >= max_facts:
+        # Refusing rather than evicting something itself: which fact matters
+        # least is a judgement, and it is not the registry's to make.
+        return (
+            f"At the limit of {max_facts} facts, so nothing new fits. Decide "
+            f"which of these matters least and forget it first: "
+            + "; ".join(memory.facts[-8:])
+        )
+
+    memory.facts.append(fact)
+    memory.save_facts()
+    return f"Noted, permanently. ({len(memory.facts)}/{max_facts} remembered)"
+
+
+@tool(
+    description=(
+        "Permanently forget one remembered fact, by quoting enough of it to "
+        "identify it. Use when something has stopped being true, or to make "
+        "room for something that matters more."
+    ),
+    parameters={
+        "fact": {"type": "string",
+                 "description": "The fact to drop, or a distinctive part of it."}
+    },
+    required=["fact"],
+)
+def forget_fact(fact: str):
+    from ..memory import memory
+
+    needle = " ".join(fact.split()).lower()
+    for existing in list(memory.facts):
+        if needle in existing.lower() or _similar(fact, existing):
+            memory.facts.remove(existing)
+            memory.save_facts()
+            return f"Forgotten: '{existing}'"
+    return f"Nothing remembered matches '{fact}'."

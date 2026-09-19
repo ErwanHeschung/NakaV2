@@ -1,3 +1,13 @@
+[identity]
+# Who the assistant is and who it is talking to. Everything else refers to
+# these rather than naming anyone, so the app can ship to someone else by
+# editing this block and persona.md.
+assistant = "Naka"
+user = "Erwan"
+# Used when the persona or a prompt needs a pronoun for the user.
+user_pronoun = "he"
+user_possessive = "his"
+
 [server]
 host = "127.0.0.1"
 port = 8000
