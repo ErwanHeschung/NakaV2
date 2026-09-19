@@ -7,7 +7,7 @@ Hold the hotkey (right ctrl by default) to speak, release to send. The reply
 is decoded and played as it arrives rather than after it completes.
 
     pip install -r client/requirements.txt
-    python client/ptt.py --url http://localhost:8000
+    python client/ptt.py --url http://127.0.0.1:8000
 """
 
 import argparse
@@ -136,16 +136,23 @@ def speak(client, url, wav_bytes, out):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--url", default="http://localhost:8000")
+    # 127.0.0.1, never "localhost": on Windows that name resolves to ::1 as
+    # well, and the server is IPv4-only, so every new connection stalls on the
+    # IPv6 attempt before falling back — a flat ~2.4s per reply.
+    ap.add_argument("--url", default="http://127.0.0.1:8000")
     ap.add_argument("--key", default="ctrl_r",
                     help="pynput key name to hold, e.g. ctrl_r, alt_r, f13")
     args = ap.parse_args()
 
     hotkey = getattr(keyboard.Key, args.key)
 
-    # One client for the session: a new connection per utterance pays a
-    # fresh handshake through the WSL2 localhost relay every time.
-    client = httpx.Client(timeout=300.0)
+    # One client for the session, and a keepalive long enough to survive a
+    # pause in the conversation: reconnecting across the WSL2 boundary is the
+    # expensive part, and the default 5s expiry meant most replies paid it.
+    client = httpx.Client(
+        timeout=300.0,
+        limits=httpx.Limits(max_keepalive_connections=4, keepalive_expiry=600.0),
+    )
     try:
         client.get(f"{args.url.rstrip('/')}/health", timeout=5.0).raise_for_status()
     except httpx.HTTPError as e:
