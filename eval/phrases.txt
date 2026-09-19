@@ -1,0 +1,27 @@
+# Twenty reference phrases, replayed after any change to catch regressions.
+# Lines starting with # are ignored. Each is spoken to the full pipeline and
+# scored on latency and on whether anything came back at all.
+#
+# The set deliberately mixes short and long, question and command, English and
+# French, and the awkward cases — numbers, punctuation, a bare acknowledgement.
+
+Hello.
+What time is it?
+Thanks, that's all.
+How much GPU memory is free?
+Set a timer for ten minutes.
+What's on my groceries note?
+Remind me what we were just talking about.
+Tell me something I don't know.
+No, the other one.
+Can you say that again, slower?
+What is twenty-three times four?
+It's eighteen point five degrees outside, isn't it?
+Add milk to the groceries note.
+Why is the sky blue? Keep it short.
+I'm going to play a game in a minute.
+Quelle heure est-il ?
+Peux-tu répéter, s'il te plaît ?
+Stop.
+Are you a real person?
+Right — so what should I do about the audio bug, then?

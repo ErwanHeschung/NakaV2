@@ -11,7 +11,7 @@ from fastapi import FastAPI, Form, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from . import agent, llm, models, settings, stt, tts
+from . import agent, llm, models, ops, settings, stt, tts, turnlog
 from .memory import memory
 from .tools.registry import AGENT, available
 
@@ -153,6 +153,23 @@ async def tools_state():
     }
 
 
+@app.get("/ops/status")
+async def ops_status():
+    return ops.status()
+
+
+@app.post("/ops/unload")
+async def ops_unload(include_llm: bool = True):
+    """Release the GPU for something else — a game, usually."""
+    return await ops.unload(include_llm)
+
+
+@app.post("/ops/load")
+async def ops_load():
+    """Bring the models back, warmed."""
+    return await ops.load()
+
+
 @app.post("/agent/stop")
 async def agent_stop():
     """Kill switch. The client binds this to a hotkey."""
@@ -190,6 +207,8 @@ async def converse(file: UploadFile, agentic: bool = Form(AGENT["default_agentic
     if not heard:
         raise HTTPException(status_code=400, detail="no speech detected")
 
+    prompt = memory.messages(heard)
+
     async def generate():
         stream = tts.OpusStream()
         first_sound = None
@@ -214,7 +233,12 @@ async def converse(file: UploadFile, agentic: bool = Form(AGENT["default_agentic
         if tail:
             yield tail
         await remember(heard, " ".join(spoken))
-        log.info("reply complete %.0fms %r",
-                 (time.perf_counter() - start) * 1000, " ".join(spoken))
+        total = (time.perf_counter() - start) * 1000
+        turnlog.record(
+            heard=heard, messages=prompt, spoken=spoken, agentic=agentic,
+            timings={"upload": t_upload, "stt": t_stt - t_upload,
+                     "first_sound": first_sound or 0, "total": total},
+        )
+        log.info("reply complete %.0fms %r", total, " ".join(spoken))
 
     return StreamingResponse(generate(), media_type="audio/ogg")

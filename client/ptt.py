@@ -90,7 +90,7 @@ def to_wav(samples):
     return buffer.getvalue()
 
 
-def speak(client, url, wav_bytes, out):
+def speak(client, url, wav_bytes, out, agentic):
     """POST the utterance and play the Opus reply as it streams back."""
     reader = ResponseReader()
     marks = {}
@@ -100,7 +100,8 @@ def speak(client, url, wav_bytes, out):
         try:
             with client.stream("POST", f"{url.rstrip('/')}/converse",
                                files={"file": ("speech.wav", wav_bytes,
-                                               "audio/wav")}) as response:
+                                               "audio/wav")},
+                               data={"agentic": str(agentic).lower()}) as response:
                 marks["response"] = time.perf_counter()
                 if response.status_code != 200:
                     response.read()
@@ -140,6 +141,11 @@ def main():
     # well, and the server is IPv4-only, so every new connection stalls on the
     # IPv6 attempt before falling back — a flat ~2.4s per reply.
     ap.add_argument("--url", default="http://127.0.0.1:8000")
+    # Tools cost roughly 600ms of extra latency, because the model must
+    # finish deciding whether to call one before anything can be spoken.
+    # Worth it to be able to set a timer; --no-tools buys the speed back.
+    ap.add_argument("--no-tools", action="store_true",
+                    help="disable tools for faster, conversation-only replies")
     ap.add_argument("--key", default="ctrl_r",
                     help="pynput key name to hold, e.g. ctrl_r, alt_r, f13")
     args = ap.parse_args()
@@ -184,7 +190,7 @@ def main():
                 print(" too short, ignored")
                 continue
             print(f" {seconds:.1f}s, thinking...")
-            speak(client, args.url, to_wav(samples), out)
+            speak(client, args.url, to_wav(samples), out, not args.no_tools)
     except KeyboardInterrupt:
         pass
     finally:
