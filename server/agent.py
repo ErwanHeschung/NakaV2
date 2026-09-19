@@ -124,7 +124,7 @@ async def run(messages: list[dict]) -> AsyncIterator[str]:
                 # has to say yes out loud on the next turn.
                 pending = {"name": name, "arguments": arguments}
                 log.info("awaiting confirmation for %s(%s)", name, arguments)
-                yield _confirmation_question(name, arguments)
+                yield await _confirmation_question(name, arguments, working)
                 return
 
             result = call(name, arguments)
@@ -138,7 +138,37 @@ async def run(messages: list[dict]) -> AsyncIterator[str]:
     yield "I went in circles on that one, so I stopped."
 
 
-def _confirmation_question(name: str, arguments: dict) -> str:
-    detail = ", ".join(f"{k} {v}" for k, v in arguments.items())
-    readable = name.replace("_", " ")
-    return f"That means {readable}{' — ' + detail if detail else ''}. Shall I?"
+CONFIRM_PROMPT = (
+    "You are about to do something that cannot be undone. In one short "
+    "spoken sentence, in your own voice, say plainly what it is and ask "
+    "whether to go ahead. Do not name the tool or its parameters. Do not "
+    "answer anything else."
+)
+
+
+def _plain_request(name: str, arguments: dict) -> str:
+    detail = ", ".join(str(v) for v in arguments.values())
+    return f"{name.replace('_', ' ')}: {detail}" if detail else name.replace("_", " ")
+
+
+async def _confirmation_question(name: str, arguments: dict,
+                                 context: list[dict]) -> str:
+    """Ask in character rather than reciting the call.
+
+    The generic version read "That means forget fact — fact X.. Shall I?",
+    which names internals and breaks the persona at exactly the moment the
+    user is being asked to trust a judgement. Worth one short generation.
+    """
+    request = _plain_request(name, arguments)
+    # Her persona, so it sounds like her, then the one instruction.
+    prompt = list(context[:1]) + [
+        {"role": "system", "content": CONFIRM_PROMPT},
+        {"role": "user", "content": f"About to: {request}"},
+    ]
+    try:
+        spoken = (await llm.complete(prompt)).strip()
+        if spoken:
+            return spoken
+    except Exception as e:
+        log.warning("could not phrase confirmation (%s), using fallback", e)
+    return f"About to {request.rstrip('.')}. Shall I?"
