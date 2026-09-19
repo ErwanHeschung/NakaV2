@@ -1,0 +1,12 @@
+.context/
+.toolchain/
+.models/
+.venv/
+__pycache__/
+*.pyc
+logs/*.log
+.env
+
+# Regenerable voice-comparison clips (eval/make_charts.py has the bench data;
+# regenerate by re-running the TTS benches).
+eval/audio/samples/

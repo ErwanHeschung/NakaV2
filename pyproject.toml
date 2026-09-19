@@ -1,0 +1,39 @@
+[project]
+name = "naka"
+version = "0.1.0"
+description = "Naka — assistante vocale 100% locale"
+requires-python = "==3.12.*"
+dependencies = [
+    "faster-whisper>=1.2.1",
+    "kokoro>=0.9.4",
+    "torch",
+    "torchaudio",
+]
+
+[tool.uv]
+# Hold the cu128 build regardless of what any dependency asks for: ML packages
+# routinely pin an exact torch (chatterbox-tts wanted 2.6.0), and versions
+# before cu128 ship no sm_120 kernels, which breaks this Blackwell card in a
+# way that only shows up at the first CUDA op.
+override-dependencies = ["torch==2.11.0", "torchaudio==2.11.0"]
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu128" }
+torchaudio = { index = "pytorch-cu128" }
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "matplotlib>=3.11.2",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["server"]
