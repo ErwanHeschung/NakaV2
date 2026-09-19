@@ -15,6 +15,17 @@ from . import agent, llm, models, ops, settings, stt, tts, turnlog
 from .memory import memory
 from .tools.registry import AGENT, available
 
+# Waking is slow enough to need explaining — the models have to come back off
+# disk. Naka says so herself rather than reciting a canned line, so it stays in
+# character and does not become the same sentence every time.
+WOKE_NOTE = (
+    "You were unloaded from the GPU a while ago to free it up, and have just "
+    "been loaded back — which took about {seconds:.0f} seconds, and is why "
+    "there was a pause before you answered. Open with one short remark about "
+    "having just woken and why it took a moment, in your own voice, then "
+    "answer normally. Do not apologise at length or mention this again."
+)
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(name)-12s %(message)s",
@@ -44,7 +55,7 @@ class TextIn(BaseModel):
     agentic: bool = AGENT["default_agentic"]
 
 
-def reply_stream(user_text: str, agentic: bool):
+def reply_stream(user_text: str, agentic: bool, messages=None):
     """Choose between plain streaming and the agentic loop.
 
     A confirmation left pending by a previous turn takes priority: this
@@ -57,7 +68,9 @@ def reply_stream(user_text: str, agentic: bool):
                 yield sentence
             return
 
-        messages = memory.messages(user_text)
+        nonlocal messages
+        if messages is None:
+            messages = memory.messages(user_text)
         if agentic:
             async for sentence in agent.run(messages):
                 yield sentence
@@ -94,13 +107,15 @@ async def stt_endpoint(file: UploadFile):
 async def chat_endpoint(body: TextIn):
     """Newline-delimited JSON, one object per sentence, as they are produced."""
     async with ops.Busy():
-        await ops.ensure_loaded()
+        woke = await ops.ensure_loaded()
+    messages = memory.messages(
+        body.text, WOKE_NOTE.format(seconds=woke) if woke else None)
 
     async def generate():
         start = time.perf_counter()
         first = None
         spoken = []
-        async for sentence in reply_stream(body.text, body.agentic):
+        async for sentence in reply_stream(body.text, body.agentic, messages):
             now = (time.perf_counter() - start) * 1000
             if first is None:
                 first = now
@@ -222,7 +237,7 @@ async def converse(file: UploadFile, agentic: bool = Form(AGENT["default_agentic
     t_upload = (time.perf_counter() - start) * 1000
 
     async with ops.Busy():
-        await ops.ensure_loaded()
+        woke = await ops.ensure_loaded()
         async with models.gpu_lock:
             heard = await asyncio.to_thread(stt.transcribe, data)
     t_stt = (time.perf_counter() - start) * 1000
@@ -232,7 +247,8 @@ async def converse(file: UploadFile, agentic: bool = Form(AGENT["default_agentic
     if not heard:
         raise HTTPException(status_code=400, detail="no speech detected")
 
-    prompt = memory.messages(heard)
+    prompt = memory.messages(
+        heard, WOKE_NOTE.format(seconds=woke) if woke else None)
 
     async def generate():
         stream = tts.OpusStream()
@@ -242,7 +258,7 @@ async def converse(file: UploadFile, agentic: bool = Form(AGENT["default_agentic
         # Its own span rather than one carried across the generator boundary,
         # so a client that hangs up mid-reply still releases the marker.
         async with ops.Busy():
-            async for sentence in reply_stream(heard, agentic):
+            async for sentence in reply_stream(heard, agentic, prompt):
                 async with models.gpu_lock:
                     samples = await asyncio.to_thread(tts.synthesize, sentence)
                     chunk = await asyncio.to_thread(stream.push, samples)

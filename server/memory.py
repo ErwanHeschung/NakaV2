@@ -61,11 +61,15 @@ class Memory:
             parts.append("## Earlier in this conversation\n\n" + self.summary)
         return "\n\n".join(parts)
 
-    def messages(self, user_text: str) -> list[dict]:
+    def messages(self, user_text: str, note: str | None = None) -> list[dict]:
         messages = [{"role": "system", "content": self.system_prompt()}]
         for spoken, answered in self.recent:
             messages.append({"role": "user", "content": spoken})
             messages.append({"role": "assistant", "content": answered})
+        # A note about this turn only — never stored, so it cannot leak into
+        # the summary or colour later answers.
+        if note:
+            messages.append({"role": "system", "content": note})
         messages.append({"role": "user", "content": user_text})
         return messages
 

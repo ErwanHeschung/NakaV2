@@ -91,14 +91,20 @@ class Busy:
         return False
 
 
-async def ensure_loaded() -> None:
-    """Load if needed, or wait for a load already in flight. Idempotent."""
+async def ensure_loaded() -> float:
+    """Load if needed, or wait for a load already in flight. Idempotent.
+
+    Returns the seconds spent waking, or 0 if it was already awake, so the
+    caller can let Naka account for the pause herself.
+    """
     if models.stt is not None and models.tts is not None:
-        return
+        return 0.0
+    start = time.perf_counter()
     async with _transition:
         if models.stt is None or models.tts is None:
             log.info("waking on demand")
             await _load_locked()
+    return time.perf_counter() - start
 
 
 async def idle_watcher() -> None:
