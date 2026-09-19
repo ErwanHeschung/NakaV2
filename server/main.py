@@ -12,7 +12,7 @@ from fastapi import FastAPI, Form, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from . import agent, llm, models, ops, settings, stt, tts, turnlog
+from . import agent, llm, logprune, models, ops, settings, stt, tts, turnlog
 from .memory import memory
 from .tools.registry import AGENT, available
 
@@ -48,7 +48,7 @@ WOKE_NOTE = (
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(name)-12s %(message)s",
-    datefmt="%H:%M:%S",
+    datefmt="%Y-%m-%d %H:%M:%S",
 )
 log = logging.getLogger("naka")
 
@@ -58,9 +58,11 @@ async def lifespan(app: FastAPI):
     models.load()
     models.warmup()
     watcher = asyncio.create_task(ops.idle_watcher())
+    pruning = asyncio.create_task(logprune.pruner())
     log.info("ready on %s:%s", settings.SERVER["host"], settings.SERVER["port"])
     yield
     watcher.cancel()
+    pruning.cancel()
     models.unload()
 
 

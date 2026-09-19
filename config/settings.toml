@@ -39,3 +39,11 @@ idle_unload_minutes = 1
 # Whether idle unloading also stops the llama.cpp container. It holds 7.4 GB of
 # the 9.3 GB, so leaving it running defeats most of the point.
 idle_unload_llm = true
+
+[logs]
+# Days of history to keep. Applies to naka.log, turns.jsonl and audit.jsonl
+# alike; anything older is dropped hourly. 0 keeps everything forever.
+#
+# Note that audit.jsonl is the record of every tool call made on this machine,
+# so shortening this shortens how far back that can be checked.
+retention_days = 14
