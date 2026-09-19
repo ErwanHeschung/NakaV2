@@ -17,7 +17,11 @@ from . import settings
 
 log = logging.getLogger("naka.llm")
 
-SENTENCE_END = re.compile(r"[.!?]")
+# A run of terminators followed by whitespace. The run keeps "..." intact
+# instead of splitting it into three empty sentences, and requiring the
+# trailing space means a decimal ("18.5") or a mid-stream token that merely
+# ends in a dot is not mistaken for the end of a sentence.
+SENTENCE_END = re.compile(r"[.!?]+[\"')\]]*\s")
 
 
 def _body(messages: list[dict], stream: bool) -> dict:
@@ -30,13 +34,6 @@ def _body(messages: list[dict], stream: bool) -> dict:
             "enable_thinking": settings.LLM["enable_thinking"]
         },
     }
-
-
-def build_messages(user_text: str) -> list[dict]:
-    return [
-        {"role": "system", "content": settings.LLM["system_prompt"]},
-        {"role": "user", "content": user_text},
-    ]
 
 
 async def stream_sentences(messages: list[dict]) -> AsyncIterator[str]:

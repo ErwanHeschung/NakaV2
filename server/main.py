@@ -12,6 +12,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from . import llm, models, settings, stt, tts
+from .memory import memory
 
 logging.basicConfig(
     level=logging.INFO,
@@ -60,19 +61,56 @@ async def stt_endpoint(file: UploadFile):
 @app.post("/chat")
 async def chat_endpoint(body: TextIn):
     """Newline-delimited JSON, one object per sentence, as they are produced."""
-    messages = llm.build_messages(body.text)
+    messages = memory.messages(body.text)
 
     async def generate():
         start = time.perf_counter()
         first = None
+        spoken = []
         async for sentence in llm.stream_sentences(messages):
             now = (time.perf_counter() - start) * 1000
             if first is None:
                 first = now
                 log.info("llm first sentence %.0fms", now)
+            spoken.append(sentence)
             yield json.dumps({"sentence": sentence, "ms": round(now)}) + "\n"
+        await remember(body.text, " ".join(spoken))
 
     return StreamingResponse(generate(), media_type="application/x-ndjson")
+
+
+async def remember(user_text: str, reply: str) -> None:
+    """Record the turn, and fold older ones in when enough have accumulated.
+
+    Summarising is a second generation, so it runs as a background task — the
+    user is not made to wait for it inside the latency budget.
+    """
+    memory.add_turn(user_text, reply)
+    if memory.needs_summary():
+        asyncio.create_task(memory.summarise())
+
+
+@app.get("/memory")
+async def memory_state():
+    return {
+        "facts": memory.facts,
+        "summary": memory.summary,
+        "recent": [{"user": u, "naka": a} for u, a in memory.recent],
+        "pending_summary": len(memory.pending),
+    }
+
+
+@app.post("/memory/reload")
+async def memory_reload():
+    """Re-read persona.md and facts.json so they can be edited live."""
+    memory.reload()
+    return {"status": "reloaded", "facts": memory.facts}
+
+
+@app.post("/memory/forget")
+async def memory_forget():
+    memory.forget()
+    return {"status": "cleared"}
 
 
 @app.post("/tts")
@@ -110,7 +148,7 @@ async def converse(file: UploadFile):
         first_sound = None
         spoken = []
 
-        async for sentence in llm.stream_sentences(llm.build_messages(heard)):
+        async for sentence in llm.stream_sentences(memory.messages(heard)):
             async with models.gpu_lock:
                 samples = await asyncio.to_thread(tts.synthesize, sentence)
                 chunk = await asyncio.to_thread(stream.push, samples)
@@ -128,6 +166,7 @@ async def converse(file: UploadFile):
         tail = await asyncio.to_thread(stream.close)
         if tail:
             yield tail
+        await remember(heard, " ".join(spoken))
         log.info("reply complete %.0fms %r",
                  (time.perf_counter() - start) * 1000, " ".join(spoken))
 

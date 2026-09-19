@@ -11,9 +11,7 @@ max_tokens = 256
 # speakers, so they are pure latency: with a 256-token cap neither model
 # produced a single spoken word. See eval/RESULTS.md.
 enable_thinking = false
-system_prompt = """You are Naka, a voice assistant. You are being spoken to out loud and your \
-reply will be read aloud, so answer in one or two short spoken sentences. \
-Never use lists, markdown, or symbols that cannot be pronounced."""
+# The system prompt now comes from config/persona.md plus memory.
 
 [stt]
 model = "large-v3-turbo"
