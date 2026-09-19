@@ -37,13 +37,22 @@ def _vram_mb() -> int:
     return int(result.stdout.strip().splitlines()[0])
 
 
-async def _compose(verb: str) -> str:
+async def _compose(verb: str) -> bool:
+    """Run one compose verb. Returns whether it worked, and says so if not.
+
+    The result used to be discarded, which meant a failed stop was reported as
+    a successful unload and the container quietly kept its 7.4 GB.
+    """
     process = await asyncio.create_subprocess_exec(
         *_DOCKER, verb, "llm",
         stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
     )
     out, _ = await process.communicate()
-    return out.decode().strip()
+    if process.returncode != 0:
+        log.error("docker compose %s failed (%d): %s",
+                  verb, process.returncode, out.decode().strip()[:300])
+        return False
+    return True
 
 
 # Serialises load/unload against each other and against requests. Without it,
@@ -133,16 +142,16 @@ async def _unload_locked(include_llm: bool) -> dict:
     start = time.perf_counter()
 
     models.unload()
-    if include_llm:
-        await _compose("stop")
+    stopped = await _compose("stop") if include_llm else False
 
     torch.cuda.empty_cache()
     after = _vram_mb()
     elapsed = (time.perf_counter() - start) * 1000
-    log.info("unloaded in %.0fms, freed %d MiB", elapsed, before - after)
+    log.info("unloaded in %.0fms, freed %d MiB (llm %s)", elapsed, before - after,
+             "stopped" if stopped else "left running")
     return {
         "status": "unloaded",
-        "llm_stopped": include_llm,
+        "llm_stopped": stopped,
         "freed_mb": before - after,
         "vram_used_mb": after,
         "ms": round(elapsed),
@@ -184,8 +193,8 @@ async def _load_locked() -> dict:
     before = _vram_mb()
     start = time.perf_counter()
 
-    await _compose("start")
-    llm_ready = await _await_llm()
+    started = await _compose("start")
+    llm_ready = await _await_llm() if started else False
     await asyncio.to_thread(models.load)
     await asyncio.to_thread(models.warmup)
 
@@ -210,4 +219,9 @@ def status() -> dict:
         "models_loaded": models.stt is not None and models.tts is not None,
         "vram_used_mb": used,
         "vram_free_mb": 16303 - used,
+        # Exposed because an idle unload that never fires is otherwise opaque:
+        # these are the three things the watcher checks before acting.
+        "idle_seconds": round(idle_seconds()),
+        "in_flight": _in_flight,
+        "transition_locked": _transition.locked(),
     }
