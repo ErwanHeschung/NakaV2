@@ -10,8 +10,7 @@
 import { api, type MemoryState, type OpsStatus, type ToolsState } from './api.js';
 import { el, poll, relativeTime, replace } from './dom.js';
 import { Orb, type OrbState } from './orb.js';
-import { button, card, icon, panel } from './ui.js';
-import type { IconName } from './icons.js';
+import { button, card, icon, panel, type IconName } from './ui.js';
 
 const root = document.querySelector<HTMLElement>('#app');
 if (!root) throw new Error('missing #app');
@@ -118,7 +117,7 @@ function renderMemory(body: HTMLElement): void {
             renderMemory(body);
           }),
           button(
-            'trash-2',
+            'trash',
             'Clear conversation',
             () => {
               if (!confirm('Clear the conversation? Remembered facts are kept.'))
@@ -200,7 +199,7 @@ const SECTIONS: Section[] = [
   { id: 'tools', icon: 'wrench', title: 'Tools', render: renderTools },
   {
     id: 'settings',
-    icon: 'sliders-horizontal',
+    icon: 'sliders',
     title: 'Settings',
     render: placeholder(
       'Config lives in config/*.toml.',

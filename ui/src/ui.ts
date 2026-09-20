@@ -1,16 +1,84 @@
-/** Small shared pieces: icons, panels, cards. */
+/** Small shared pieces: icons, buttons, panels, cards. */
 
+import {
+  AudioLines,
+  Bell,
+  Brain,
+  Check,
+  ChevronRight,
+  CircleAlert,
+  Clock,
+  Cpu,
+  Ellipsis,
+  LoaderCircle,
+  Mic,
+  NotebookPen,
+  Pencil,
+  Power,
+  RefreshCw,
+  Settings,
+  SlidersHorizontal,
+  Trash,
+  Wrench,
+  X,
+  Zap,
+  createElement,
+} from 'lucide';
 import { el } from './dom.js';
-import { icons, type IconName } from './icons.js';
 
-/** Inline an icon. The SVG is trusted — it is compiled in from lucide. */
+/**
+ * The icons this panel uses, by the names the rest of the code refers to.
+ *
+ * Lucide's own icon data and createElement() do the work. Adding one here
+ * also means adding it to ICONS in scripts/vendor-lucide.mjs, which is what
+ * actually copies it into public/vendor.
+ */
+const ICONS = {
+  'audio-lines': AudioLines,
+  bell: Bell,
+  brain: Brain,
+  check: Check,
+  'chevron-right': ChevronRight,
+  'circle-alert': CircleAlert,
+  clock: Clock,
+  cpu: Cpu,
+  ellipsis: Ellipsis,
+  loader: LoaderCircle,
+  mic: Mic,
+  'notebook-pen': NotebookPen,
+  pencil: Pencil,
+  power: Power,
+  'refresh-cw': RefreshCw,
+  settings: Settings,
+  sliders: SlidersHorizontal,
+  trash: Trash,
+  wrench: Wrench,
+  x: X,
+  zap: Zap,
+} as const;
+
+export type IconName = keyof typeof ICONS;
+
 export function icon(name: IconName, extra = ''): SVGElement {
-  const holder = document.createElement('div');
-  holder.innerHTML = icons[name];
-  const svg = holder.querySelector('svg');
-  if (!svg) throw new Error(`icon ${name} has no svg`);
-  svg.setAttribute('class', `icon ${extra}`.trim());
-  return svg;
+  // Size and colour come from CSS, so the element inherits from wherever it
+  // is placed rather than carrying its own.
+  return createElement(ICONS[name], {
+    class: `icon ${extra}`.trim(),
+    width: '',
+    height: '',
+  });
+}
+
+export function button(
+  name: IconName | null,
+  label: string,
+  onClick: () => void,
+  extra = '',
+): HTMLButtonElement {
+  const node = el('button', { class: `btn ${extra}`.trim(), onclick: onClick });
+  if (name) node.append(icon(name, 'sm'));
+  node.append(label);
+  return node;
 }
 
 export function iconButton(
@@ -25,18 +93,6 @@ export function iconButton(
     onclick: onClick,
   });
   node.append(icon(name));
-  return node;
-}
-
-export function button(
-  name: IconName | null,
-  label: string,
-  onClick: () => void,
-  extra = '',
-): HTMLButtonElement {
-  const node = el('button', { class: `btn ${extra}`.trim(), onclick: onClick });
-  if (name) node.append(icon(name, 'sm'));
-  node.append(label);
   return node;
 }
 

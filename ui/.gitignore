@@ -1,2 +1,7 @@
 node_modules/
 public/js/
+public/vendor/
+
+# tsc emits here only if tsconfig is broken; never source.
+src/*.js
+src/*.js.map

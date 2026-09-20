@@ -6,6 +6,14 @@
     <meta name="color-scheme" content="dark" />
     <title>Naka</title>
     <link rel="stylesheet" href="./style.css" />
+    <!--
+      Resolves the bare "lucide" specifier without a bundler. The vendored
+      barrel re-exports only the icons this panel uses; see
+      scripts/vendor-lucide.mjs.
+    -->
+    <script type="importmap">
+      { "imports": { "lucide": "./vendor/lucide/index.mjs" } }
+    </script>
   </head>
   <body>
     <div class="ambient"></div>

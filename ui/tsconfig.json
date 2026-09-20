@@ -15,7 +15,10 @@
     "isolatedModules": true,
     "skipLibCheck": true,
     "sourceMap": true,
-    "declaration": false
+    "declaration": false,
+    "paths": {
+      "lucide": ["./node_modules/lucide/dist/lucide.d.ts"]
+    }
   },
   "include": ["src"]
 }
