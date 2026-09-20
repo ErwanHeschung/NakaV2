@@ -14,7 +14,7 @@ from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import agent, llm, logprune, models, ops, settings, stt, tts, turnlog
+from . import agent, llm, logprune, models, ops, panel, settings, stt, tts, turnlog
 from .memory import memory
 from .tools.registry import AGENT, available
 
@@ -111,6 +111,9 @@ def reply_stream(user_text: str, agentic: bool, messages=None):
                 yield sentence
 
     return generate()
+
+
+app.include_router(panel.router)
 
 
 @app.get("/health")

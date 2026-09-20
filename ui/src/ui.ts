@@ -1,24 +1,31 @@
 /** Small shared pieces: icons, buttons, panels, cards. */
 
 import {
+  ArrowLeft,
   AudioLines,
   Bell,
   Brain,
   Check,
   ChevronRight,
   CircleAlert,
+  CirclePlus,
   Clock,
   Cpu,
+  FileText,
   Ellipsis,
   LoaderCircle,
   Mic,
   NotebookPen,
   Pencil,
+  Plus,
   Power,
   RefreshCw,
+  RotateCcw,
+  Save,
   Settings,
   SlidersHorizontal,
   Trash,
+  TriangleAlert,
   Wrench,
   X,
   Zap,
@@ -34,24 +41,31 @@ import { el } from './dom.js';
  * actually copies it into public/vendor.
  */
 const ICONS = {
+  'arrow-left': ArrowLeft,
   'audio-lines': AudioLines,
   bell: Bell,
   brain: Brain,
   check: Check,
   'chevron-right': ChevronRight,
   'circle-alert': CircleAlert,
+  'circle-plus': CirclePlus,
   clock: Clock,
   cpu: Cpu,
+  'file-text': FileText,
   ellipsis: Ellipsis,
   loader: LoaderCircle,
   mic: Mic,
   'notebook-pen': NotebookPen,
   pencil: Pencil,
+  plus: Plus,
   power: Power,
   'refresh-cw': RefreshCw,
+  'rotate-ccw': RotateCcw,
+  save: Save,
   settings: Settings,
   sliders: SlidersHorizontal,
   trash: Trash,
+  'triangle-alert': TriangleAlert,
   wrench: Wrench,
   x: X,
   zap: Zap,
@@ -124,4 +138,111 @@ export function card(
     el('div', { class: 'value' }, value),
     sub ? el('div', { class: 'sub' }, sub) : null,
   );
+}
+
+/* ------------------------------------------------------------------ forms */
+
+/**
+ * A labelled control.
+ *
+ * `onChange` is handed the parsed value, never the raw input element, so no
+ * caller ends up reading state back out of the DOM — the one rule this
+ * framework-free approach depends on to stay coherent.
+ */
+export function control(
+  spec: {
+    label: string;
+    help?: string;
+    badge?: string;
+  },
+  input: HTMLElement,
+): HTMLElement {
+  return el(
+    'label',
+    { class: 'control' },
+    el(
+      'div',
+      { class: 'control-label' },
+      spec.label,
+      spec.badge === undefined ? null : el('span', { class: 'tag' }, spec.badge),
+    ),
+    input,
+    spec.help === undefined || spec.help === ''
+      ? null
+      : el('div', { class: 'control-help' }, spec.help),
+  );
+}
+
+export function textField(
+  value: string,
+  onChange: (value: string) => void,
+  placeholder = '',
+): HTMLInputElement {
+  const node = el('input', { class: 'input', type: 'text', placeholder });
+  node.value = value;
+  node.addEventListener('input', () => {
+    onChange(node.value);
+  });
+  return node;
+}
+
+export function numberField(
+  value: number,
+  onChange: (value: number) => void,
+  bounds: { min?: number | null; max?: number | null; step?: number | null } = {},
+): HTMLInputElement {
+  const node = el('input', { class: 'input', type: 'number' });
+  if (bounds.min !== null && bounds.min !== undefined) node.min = String(bounds.min);
+  if (bounds.max !== null && bounds.max !== undefined) node.max = String(bounds.max);
+  node.step = String(bounds.step ?? 1);
+  node.value = String(value);
+  node.addEventListener('input', () => {
+    // An empty or half-typed box is not a value yet; reporting NaN upward
+    // would put the form into a state the server is bound to reject.
+    if (node.value.trim() === '') return;
+    const parsed = Number(node.value);
+    if (!Number.isNaN(parsed)) onChange(parsed);
+  });
+  return node;
+}
+
+export function toggle(
+  value: boolean,
+  onChange: (value: boolean) => void,
+): HTMLElement {
+  const node = el('input', { class: 'switch', type: 'checkbox' });
+  node.checked = value;
+  node.addEventListener('change', () => {
+    onChange(node.checked);
+  });
+  return node;
+}
+
+export function choiceField(
+  value: string,
+  options: readonly string[],
+  onChange: (value: string) => void,
+): HTMLSelectElement {
+  const node = el('select', { class: 'input' });
+  for (const option of options) {
+    const item = el('option', { value: option }, option);
+    node.append(item);
+  }
+  node.value = value;
+  node.addEventListener('change', () => {
+    onChange(node.value);
+  });
+  return node;
+}
+
+export function textArea(
+  value: string,
+  onChange: (value: string) => void,
+): HTMLTextAreaElement {
+  const node = el('textarea', { class: 'input editor', spellcheck: false });
+  node.value = value;
+  node.addEventListener('input', () => {
+    onChange(node.value);
+  });
+  return node;
 }

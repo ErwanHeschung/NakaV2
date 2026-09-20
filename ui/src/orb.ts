@@ -136,7 +136,7 @@ export class Orb {
     const h = canvas.height / dpr;
     const cx = w / 2;
     const cy = h / 2;
-    const base = Math.min(w, h) * 0.29;
+    const base = Math.min(w, h) * 0.33;
     const palette = PALETTES[this.state];
 
     const breath = this.state === 'sleeping' ? 0.1 : 0.24;

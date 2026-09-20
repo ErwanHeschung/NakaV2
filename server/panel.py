@@ -1,0 +1,345 @@
+"""Endpoints that exist for the control panel rather than for the voice loop.
+
+Notes and timers are already reachable as tools, but a tool answers in prose
+because that is what goes back to the model. The panel needs the same state as
+data, and needs to change it without going through a conversation.
+
+Settings are edited through an explicit field list rather than by writing
+arbitrary TOML. Two reasons: the panel can render a real control per field
+because it knows the type and range, and nothing outside the list can be
+reached, so a malformed save cannot take the server down with it.
+"""
+
+import logging
+import time
+from dataclasses import dataclass, field as dataclass_field
+from pathlib import Path
+
+import tomlkit
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
+
+from . import settings
+from .memory import memory
+from .tools import builtin
+
+log = logging.getLogger("naka.panel")
+
+router = APIRouter()
+
+
+# ------------------------------------------------------------------- notes
+
+
+class NoteIn(BaseModel):
+    content: str
+    name: str | None = None
+
+
+def _note_view(path: Path, body: str | None = None) -> dict:
+    text = body if body is not None else path.read_text()
+    return {
+        "name": path.stem,
+        "modified": path.stat().st_mtime,
+        "bytes": path.stat().st_size,
+        "preview": " ".join(text.split())[:120],
+    }
+
+
+@router.get("/notes")
+async def notes_list():
+    return {"notes": [_note_view(p) for p in builtin.note_files()],
+            "directory": str(builtin.NOTES_DIR)}
+
+
+@router.get("/notes/{name}")
+async def note_read(name: str):
+    path = _resolve(name)
+    if not path.exists():
+        raise HTTPException(status_code=404, detail=f"no note called {name!r}")
+    return _note_view(path) | {"content": path.read_text()}
+
+
+@router.put("/notes/{name}")
+async def note_write(name: str, body: NoteIn):
+    """Replace the note. The write_note tool appends instead — the model is
+    adding to what it knows, whereas someone editing in the panel means the
+    text in front of them to be what the file says afterwards."""
+    path = _resolve(name)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(body.content)
+    log.info("note %r saved from the panel (%d bytes)", path.stem, len(body.content))
+    return _note_view(path, body.content)
+
+
+@router.delete("/notes/{name}")
+async def note_delete(name: str):
+    path = _resolve(name)
+    if not path.exists():
+        raise HTTPException(status_code=404, detail=f"no note called {name!r}")
+    path.unlink()
+    log.info("note %r deleted from the panel", path.stem)
+    return {"status": "deleted", "name": path.stem}
+
+
+def _resolve(name: str) -> Path:
+    """Same sanitising as the tools use, so the panel cannot reach further
+    into the filesystem than the model can."""
+    try:
+        return builtin.note_path(name)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+# ------------------------------------------------------------------ timers
+
+
+class TimerIn(BaseModel):
+    label: str
+    duration_seconds: int
+
+
+@router.get("/timers")
+async def timers_list():
+    return {
+        "timers": builtin.live_timers(),
+        "now": time.time(),
+        # Said plainly rather than left for the user to discover: a timer that
+        # is listed but silent looks like a bug until you know why.
+        "can_fire": False,
+        "note": "Timers are tracked but cannot ring yet — nothing here can "
+                "reach you when one runs out.",
+    }
+
+
+@router.post("/timers")
+async def timer_create(body: TimerIn):
+    try:
+        builtin.set_timer(body.duration_seconds, body.label)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return {"timers": builtin.live_timers(), "now": time.time()}
+
+
+@router.delete("/timers/{label}")
+async def timer_cancel(label: str):
+    if not builtin.drop_timer(label):
+        raise HTTPException(status_code=404, detail=f"no timer called {label!r}")
+    return {"timers": builtin.live_timers(), "now": time.time()}
+
+
+# ---------------------------------------------------------------- settings
+
+
+@dataclass(frozen=True)
+class Field:
+    """One editable setting.
+
+    `key` is "<file>.<dotted path>". `applies` is what the panel tells the
+    user about when the change bites: most settings are read afresh on every
+    request, but the two that decide how a model is built only take hold the
+    next time one is loaded.
+    """
+
+    key: str
+    label: str
+    kind: str  # text | int | float | bool | choice
+    group: str
+    help: str = ""
+    applies: str = "live"  # live | models
+    minimum: float | None = None
+    maximum: float | None = None
+    step: float | None = None
+    options: list[str] = dataclass_field(default_factory=list)
+
+
+FIELDS: list[Field] = [
+    Field("settings.identity.assistant", "Assistant name", "text", "Identity",
+          "What she is called, everywhere — the persona reads it from here."),
+    Field("settings.identity.user", "Your name", "text", "Identity",
+          "Used in the persona and when she writes a fact about you."),
+    Field("settings.identity.user_pronoun", "Your pronoun", "text", "Identity",
+          "Subject form: he, she, they."),
+    Field("settings.identity.user_possessive", "Your possessive", "text",
+          "Identity", "his, her, their."),
+
+    Field("voice.voice.name", "Kokoro voice", "text", "Voice",
+          'One voice, or a blend like "af_heart:60,am_michael:40".'),
+    Field("voice.dsp.enabled", "Voice processing", "bool", "Voice",
+          "The character on top of the raw speech. Off is the plain model."),
+    Field("voice.dsp.pitch.semitones", "Pitch", "float", "Voice",
+          "Shifts formants too, which is what stops it sounding like a "
+          "person. Past 3 it becomes a chipmunk.",
+          minimum=-6, maximum=6, step=0.5),
+    Field("voice.dsp.chorus.enabled", "Chorus", "bool", "Voice",
+          "Short doubling: suggests more than one source."),
+    Field("voice.dsp.compressor.ratio", "Compression", "float", "Voice",
+          "Flattens the breath-driven loudness of a human talker.",
+          minimum=1, maximum=20, step=0.5),
+    Field("voice.dsp.crusher.enabled", "Bit crusher", "bool", "Voice",
+          "The fastest way to sound cheap rather than synthetic. Usually off."),
+
+    Field("settings.llm.url", "Server", "text", "Language model",
+          "Where llama.cpp is listening."),
+    Field("settings.llm.temperature", "Temperature", "float", "Language model",
+          "0 is deterministic. Higher wanders.", minimum=0, maximum=2, step=0.05),
+    Field("settings.llm.max_tokens", "Reply cap", "int", "Language model",
+          "Tokens per reply. Spoken answers rarely need many.",
+          minimum=32, maximum=2048, step=32),
+    Field("settings.llm.enable_thinking", "Reasoning tokens", "bool",
+          "Language model",
+          "Reasoning never reaches the speakers, so it is pure latency. "
+          "Leaving this on cost every spoken word in testing."),
+
+    Field("settings.stt.model", "Whisper model", "choice", "Hearing",
+          "Larger hears better and takes longer.", applies="models",
+          options=["tiny", "base", "small", "medium", "large-v3",
+                   "large-v3-turbo"]),
+    Field("settings.stt.compute_type", "Precision", "choice", "Hearing",
+          "How the model is quantised in VRAM.", applies="models",
+          options=["int8", "int8_float16", "float16", "float32"]),
+    Field("settings.stt.language", "Language", "choice", "Hearing",
+          "Forced, not detected: detection degrades mixed-language speech.",
+          options=["en", "fr", "de", "es", "it", "pt", "nl", "ja", "zh"]),
+    Field("settings.stt.beam_size", "Beam size", "int", "Hearing",
+          "Wider searches harder for the right words.", minimum=1, maximum=10),
+
+    Field("settings.ops.idle_unload_minutes", "Idle unload", "int", "Resources",
+          "Minutes without a request before the GPU is released. 0 never "
+          "releases it.", minimum=0, maximum=240),
+    Field("settings.ops.idle_unload_llm", "Also stop the language model",
+          "bool", "Resources",
+          "It holds most of the VRAM, so leaving it running defeats the point."),
+
+    Field("settings.logs.retention_days", "Keep logs for", "int", "Logs",
+          "Days. This also bounds how far back the record of tool calls goes. "
+          "0 keeps everything.", minimum=0, maximum=365),
+]
+
+BY_KEY = {f.key: f for f in FIELDS}
+
+_FILES = {"settings": settings.SETTINGS_FILE, "voice": settings.VOICE_FILE}
+
+
+def _split(key: str) -> tuple[Path, list[str]]:
+    file, _, rest = key.partition(".")
+    if file not in _FILES or not rest:
+        raise HTTPException(status_code=400, detail=f"unknown setting {key!r}")
+    return _FILES[file], rest.split(".")
+
+
+def _current(key: str):
+    path, parts = _split(key)
+    node = tomlkit.parse(path.read_text())
+    for part in parts:
+        if part not in node:
+            return None
+        node = node[part]
+    return node.unwrap() if hasattr(node, "unwrap") else node
+
+
+def _coerce(f: Field, value):
+    """Take the field at its word about its own type, and reject the rest.
+
+    The panel sends JSON, so an int arrives as a float often enough that
+    coercing is kinder than refusing; a string where a number belongs is a
+    real mistake and is refused.
+    """
+    try:
+        if f.kind == "bool":
+            if not isinstance(value, bool):
+                raise ValueError("expected true or false")
+            return value
+        if f.kind == "int":
+            # int("hot") explains itself in Python's words, not the user's.
+            if not isinstance(value, (int, float)) or int(value) != float(value):
+                raise ValueError("expected a whole number")
+            coerced = int(value)
+        elif f.kind == "float":
+            if not isinstance(value, (int, float)):
+                raise ValueError("expected a number")
+            coerced = float(value)
+        else:
+            coerced = str(value).strip()
+            if not coerced:
+                raise ValueError("cannot be empty")
+            if f.kind == "choice" and coerced not in f.options:
+                raise ValueError(f"must be one of {', '.join(f.options)}")
+            return coerced
+    except (TypeError, ValueError) as e:
+        raise HTTPException(status_code=400,
+                            detail=f"{f.label}: {e}") from e
+
+    if f.minimum is not None and coerced < f.minimum:
+        raise HTTPException(status_code=400,
+                            detail=f"{f.label}: must be at least {f.minimum}")
+    if f.maximum is not None and coerced > f.maximum:
+        raise HTTPException(status_code=400,
+                            detail=f"{f.label}: must be at most {f.maximum}")
+    return coerced
+
+
+class SettingsIn(BaseModel):
+    changes: dict[str, object]
+
+
+@router.get("/settings")
+async def settings_read():
+    return {
+        "fields": [
+            {
+                "key": f.key, "label": f.label, "kind": f.kind,
+                "group": f.group, "help": f.help, "applies": f.applies,
+                "minimum": f.minimum, "maximum": f.maximum, "step": f.step,
+                "options": f.options, "value": _current(f.key),
+            }
+            for f in FIELDS
+        ],
+        "groups": list(dict.fromkeys(f.group for f in FIELDS)),
+        "files": {name: str(path) for name, path in _FILES.items()},
+    }
+
+
+@router.patch("/settings")
+async def settings_write(body: SettingsIn):
+    """Validate everything, then write — so a bad value in a batch leaves the
+    file exactly as it was rather than half-applied."""
+    if not body.changes:
+        raise HTTPException(status_code=400, detail="nothing to change")
+
+    planned: dict[Path, list[tuple[list[str], object]]] = {}
+    for key, value in body.changes.items():
+        f = BY_KEY.get(key)
+        if f is None:
+            raise HTTPException(status_code=400, detail=f"unknown setting {key!r}")
+        path, parts = _split(key)
+        planned.setdefault(path, []).append((parts, _coerce(f, value)))
+
+    for path, edits in planned.items():
+        # tomlkit round-trips the file, so the comments explaining each knob
+        # survive being edited from a web page.
+        doc = tomlkit.parse(path.read_text())
+        for parts, value in edits:
+            node = doc
+            for part in parts[:-1]:
+                if part not in node:
+                    node[part] = tomlkit.table()
+                node = node[part]
+            node[parts[-1]] = value
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        tmp.write_text(tomlkit.dumps(doc))
+        tmp.replace(path)
+        log.info("saved %d setting(s) to %s", len(edits), path.name)
+
+    settings.reload()
+    # The persona is a template filled from identity, so a name change only
+    # shows up once it is rebuilt.
+    memory.reload()
+
+    return {
+        "saved": sorted(body.changes),
+        "needs_model_reload": sorted(
+            k for k in body.changes if BY_KEY[k].applies == "models"
+        ),
+        "fields": (await settings_read())["fields"],
+    }

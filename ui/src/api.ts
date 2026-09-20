@@ -11,6 +11,7 @@ export interface OpsStatus {
   models_loaded: boolean;
   llm_up: boolean | null;
   vram_used_mb: number;
+  vram_total_mb: number;
   vram_free_mb: number;
   idle_seconds: number;
   in_flight: number;
@@ -35,6 +36,62 @@ export interface ToolsState {
   max_steps: number;
   timeout_s: number;
   awaiting_confirmation: { name: string; arguments: Record<string, unknown> } | null;
+}
+
+export interface NoteInfo {
+  name: string;
+  modified: number;
+  bytes: number;
+  preview: string;
+}
+
+export interface NoteBody extends NoteInfo {
+  content: string;
+}
+
+export interface NotesState {
+  notes: NoteInfo[];
+  directory: string;
+}
+
+export interface Timer {
+  label: string;
+  due: number;
+  remaining_seconds: number;
+}
+
+export interface TimersState {
+  timers: Timer[];
+  now: number;
+  can_fire: boolean;
+  note: string;
+}
+
+/** One editable setting, described by the server so the UI can render it. */
+export interface SettingField {
+  key: string;
+  label: string;
+  kind: 'text' | 'int' | 'float' | 'bool' | 'choice';
+  group: string;
+  help: string;
+  applies: 'live' | 'models';
+  minimum: number | null;
+  maximum: number | null;
+  step: number | null;
+  options: string[];
+  value: string | number | boolean | null;
+}
+
+export interface SettingsState {
+  fields: SettingField[];
+  groups: string[];
+  files: Record<string, string>;
+}
+
+export interface SettingsSaved {
+  saved: string[];
+  needs_model_reload: string[];
+  fields: SettingField[];
 }
 
 export class ApiError extends Error {
@@ -104,6 +161,54 @@ export class NakaApi {
 
   tools(): Promise<ToolsState> {
     return this.request('/tools');
+  }
+
+  notes(): Promise<NotesState> {
+    return this.request('/notes');
+  }
+
+  note(name: string): Promise<NoteBody> {
+    return this.request(`/notes/${encodeURIComponent(name)}`);
+  }
+
+  saveNote(name: string, content: string): Promise<NoteInfo> {
+    return this.request(`/notes/${encodeURIComponent(name)}`, {
+      method: 'PUT',
+      body: JSON.stringify({ content }),
+    });
+  }
+
+  deleteNote(name: string): Promise<unknown> {
+    return this.request(`/notes/${encodeURIComponent(name)}`, { method: 'DELETE' });
+  }
+
+  timers(): Promise<TimersState> {
+    return this.request('/timers');
+  }
+
+  startTimer(label: string, durationSeconds: number): Promise<TimersState> {
+    return this.request('/timers', {
+      method: 'POST',
+      body: JSON.stringify({ label, duration_seconds: durationSeconds }),
+    });
+  }
+
+  cancelTimer(label: string): Promise<TimersState> {
+    return this.request(`/timers/${encodeURIComponent(label)}`, {
+      method: 'DELETE',
+    });
+  }
+
+  settings(): Promise<SettingsState> {
+    return this.request('/settings');
+  }
+
+  /** Server validates and writes atomically: a bad value saves nothing. */
+  saveSettings(changes: Record<string, unknown>): Promise<SettingsSaved> {
+    return this.request('/settings', {
+      method: 'PATCH',
+      body: JSON.stringify({ changes }),
+    });
   }
 
   /** Stops the agent loop wherever it is. */

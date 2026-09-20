@@ -30,11 +30,20 @@ _DOCKER = ["docker", "compose", "-f", str(COMPOSE)]
 
 
 def _vram_mb() -> int:
+    return _vram()[0]
+
+
+def _vram() -> tuple[int, int]:
+    """(used, total) in MiB. The total is asked for rather than assumed: this
+    ships to whatever card the user has, and a hardcoded size turns into a
+    wrong percentage on every other machine."""
     result = subprocess.run(
-        ["nvidia-smi", "--query-gpu=memory.used", "--format=csv,noheader,nounits"],
+        ["nvidia-smi", "--query-gpu=memory.used,memory.total",
+         "--format=csv,noheader,nounits"],
         capture_output=True, text=True, timeout=10,
     )
-    return int(result.stdout.strip().splitlines()[0])
+    used, total = result.stdout.strip().splitlines()[0].split(",")
+    return int(used), int(total)
 
 
 async def _compose(verb: str) -> bool:
@@ -244,11 +253,12 @@ async def _load_locked() -> dict:
 
 
 def status() -> dict:
-    used = _vram_mb()
+    used, total = _vram()
     return {
         "models_loaded": models.stt is not None and models.tts is not None,
         "vram_used_mb": used,
-        "vram_free_mb": 16303 - used,
+        "vram_total_mb": total,
+        "vram_free_mb": total - used,
         # Exposed because an idle unload that never fires is otherwise opaque:
         # these are the three things the watcher checks before acting.
         "llm_up": _llm_up,

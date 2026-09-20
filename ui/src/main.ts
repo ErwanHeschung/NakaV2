@@ -7,10 +7,17 @@
  * which is the live status indicator — is never hidden.
  */
 
-import { api, type MemoryState, type OpsStatus, type ToolsState } from './api.js';
+import { api, type MemoryState, type OpsStatus } from './api.js';
 import { el, poll, relativeTime, replace } from './dom.js';
 import { Orb, type OrbState } from './orb.js';
-import { button, card, icon, panel, type IconName } from './ui.js';
+import {
+  renderMemory,
+  renderNotes,
+  renderSettings,
+  renderTimers,
+  renderTools,
+} from './panels.js';
+import { card, icon, panel, type IconName } from './ui.js';
 
 const root = document.querySelector<HTMLElement>('#app');
 if (!root) throw new Error('missing #app');
@@ -93,119 +100,12 @@ function toggleSection(section: Section, trigger: HTMLElement): void {
 
 /* --------------------------------------------------------------- sections */
 
-function renderMemory(body: HTMLElement): void {
-  replace(body, el('p', { class: 'muted' }, 'Loading…'));
-  void api
-    .memory()
-    .then((state: MemoryState) => {
-      replace(
-        body,
-        el('h3', {}, `Facts — ${state.facts.length}`),
-        state.facts.length > 0
-          ? el('ol', { class: 'facts' }, ...state.facts.map((f) => el('li', {}, f)))
-          : el('p', { class: 'muted' }, 'Nothing remembered yet.'),
-        el('h3', {}, 'Summary'),
-        el(
-          'p',
-          { class: state.summary ? 'muted' : 'muted' },
-          state.summary || 'Nothing folded in yet.',
-        ),
-        el(
-          'div',
-          { class: 'row' },
-          button('refresh-cw', 'Refresh', () => {
-            renderMemory(body);
-          }),
-          button(
-            'trash',
-            'Clear conversation',
-            () => {
-              if (!confirm('Clear the conversation? Remembered facts are kept.'))
-                return;
-              void api.forgetConversation().then(() => {
-                renderMemory(body);
-              });
-            },
-            'danger',
-          ),
-        ),
-      );
-    })
-    .catch((error: unknown) => {
-      replace(body, el('p', { class: 'error' }, String(error)));
-    });
-}
-
-function renderTools(body: HTMLElement): void {
-  replace(body, el('p', { class: 'muted' }, 'Loading…'));
-  void api
-    .tools()
-    .then((state: ToolsState) => {
-      replace(
-        body,
-        el(
-          'p',
-          { class: 'muted' },
-          `${state.allowed.length} allowed · max ${state.max_steps} steps · ${state.timeout_s}s timeout`,
-        ),
-        ...state.allowed.map((tool) =>
-          el(
-            'div',
-            { class: 'turn' },
-            el(
-              'div',
-              { class: 'row' },
-              el('strong', {}, tool.name),
-              tool.destructive
-                ? el('span', { class: 'muted' }, '· needs confirmation')
-                : null,
-            ),
-            el('div', { class: 'muted' }, tool.description),
-          ),
-        ),
-      );
-    })
-    .catch((error: unknown) => {
-      replace(body, el('p', { class: 'error' }, String(error)));
-    });
-}
-
-function placeholder(what: string, why: string) {
-  return (body: HTMLElement): void => {
-    replace(body, el('p', {}, what), el('p', { class: 'muted' }, why));
-  };
-}
-
 const SECTIONS: Section[] = [
   { id: 'memory', icon: 'brain', title: 'Memory', render: renderMemory },
-  {
-    id: 'notes',
-    icon: 'notebook-pen',
-    title: 'Notes',
-    render: placeholder(
-      'Notes are stored in ~/naka-notes.',
-      'The server has no notes API yet — they are reachable only as tools. Next up.',
-    ),
-  },
-  {
-    id: 'timers',
-    icon: 'clock',
-    title: 'Timers',
-    render: placeholder(
-      'No timers running.',
-      'Timers are recorded but never fire: there is no scheduler and no way to reach you yet.',
-    ),
-  },
+  { id: 'notes', icon: 'notebook-pen', title: 'Notes', render: renderNotes },
+  { id: 'timers', icon: 'clock', title: 'Timers', render: renderTimers },
   { id: 'tools', icon: 'wrench', title: 'Tools', render: renderTools },
-  {
-    id: 'settings',
-    icon: 'sliders',
-    title: 'Settings',
-    render: placeholder(
-      'Config lives in config/*.toml.',
-      'Editing needs write endpoints with validation, which do not exist yet.',
-    ),
-  },
+  { id: 'settings', icon: 'sliders', title: 'Settings', render: renderSettings },
 ];
 
 const triggers = new Map<string, HTMLElement>();
@@ -246,7 +146,11 @@ openFromHash();
 
 /* ------------------------------------------------------------ live status */
 
-const VRAM_TOTAL_MB = 16303;
+// Counts for the strip. They change slowly, so they ride the slower poll
+// below rather than the two-second one that drives the orb.
+let noteCount: number | null = null;
+let timerCount: number | null = null;
+let soonestTimer = '';
 
 function describe(state: OpsStatus): { orbState: OrbState; what: string } {
   if (state.in_flight > 0) return { orbState: 'thinking', what: 'Working' };
@@ -260,7 +164,7 @@ function describe(state: OpsStatus): { orbState: OrbState; what: string } {
 function renderLatest(state: OpsStatus): void {
   const usedGb = (state.vram_used_mb / 1024).toFixed(1);
   const freeGb = (state.vram_free_mb / 1024).toFixed(1);
-  const percent = Math.round((state.vram_used_mb / VRAM_TOTAL_MB) * 100);
+  const percent = Math.round((state.vram_used_mb / state.vram_total_mb) * 100);
   replace(
     latest,
     card('cpu', 'GPU memory', `${usedGb} GB`, `${freeGb} GB free · ${percent}%`),
@@ -271,7 +175,18 @@ function renderLatest(state: OpsStatus): void {
       state.llm_up === true ? 'language model up' : 'language model stopped',
     ),
     card('clock', 'Idle', relativeTime(state.idle_seconds), 'since last request'),
-    card('notebook-pen', 'Notes', '—', 'no API yet'),
+    card(
+      'notebook-pen',
+      'Notes',
+      noteCount === null ? '—' : String(noteCount),
+      'in the notes folder',
+    ),
+    card(
+      'bell',
+      'Timers',
+      timerCount === null ? '—' : String(timerCount),
+      soonestTimer || 'none running',
+    ),
   );
 }
 
@@ -323,6 +238,13 @@ poll(
   6000,
   async () => {
     renderConversation(await api.memory());
+    const [notes, timers] = await Promise.all([api.notes(), api.timers()]);
+    noteCount = notes.notes.length;
+    timerCount = timers.timers.length;
+    const next = timers.timers[0];
+    soonestTimer = next
+      ? `${next.label} in ${relativeTime(next.remaining_seconds)}`
+      : '';
   },
   () => {
     replace(convo.body, el('div', { class: 'empty' }, 'Cannot reach the server.'));

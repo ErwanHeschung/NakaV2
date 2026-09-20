@@ -18,7 +18,7 @@ _timer_lock = threading.Lock()
 _SAFE_NAME = re.compile(r"[^a-z0-9 _-]")
 
 
-def _note_path(name: str):
+def note_path(name: str):
     """Resolve a note name to a file inside NOTES_DIR, and nowhere else."""
     cleaned = _SAFE_NAME.sub("", name.strip().lower()).strip()
     cleaned = re.sub(r"\s+", "-", cleaned)[:60]
@@ -103,6 +103,39 @@ def cancel_timer(label: str):
     return f"Cancelled '{label}'."
 
 
+# ---------------------------------------------------------------- panel views
+#
+# The tools above return prose, because that is what goes back to the model.
+# The control panel needs the same state as data, so it reads it through these
+# rather than parsing sentences.
+
+
+def live_timers() -> list[dict]:
+    """Running timers, soonest first. Expired ones are dropped on the way."""
+    now = time.time()
+    with _timer_lock:
+        live = {k: v for k, v in _timers.items() if v["due"] > now}
+        _timers.clear()
+        _timers.update(live)
+        return sorted(
+            ({"label": v["label"], "due": v["due"],
+              "remaining_seconds": int(v["due"] - now)} for v in live.values()),
+            key=lambda t: t["due"],
+        )
+
+
+def drop_timer(label: str) -> bool:
+    with _timer_lock:
+        return _timers.pop(label, None) is not None
+
+
+def note_files() -> list:
+    if not NOTES_DIR.exists():
+        return []
+    return sorted(NOTES_DIR.glob("*.md"), key=lambda p: p.stat().st_mtime,
+                  reverse=True)
+
+
 @tool(
     description="Search the user's notes and return matching lines.",
     parameters={
@@ -131,7 +164,7 @@ def search_notes(query: str, limit: int = 5):
     required=["name"],
 )
 def read_note(name: str):
-    path = _note_path(name)
+    path = note_path(name)
     if not path.exists():
         return f"There is no note called '{name}'."
     return path.read_text().strip()[:2000] or "That note is empty."
@@ -146,7 +179,7 @@ def read_note(name: str):
     required=["name", "content"],
 )
 def write_note(name: str, content: str):
-    path = _note_path(name)
+    path = note_path(name)
     existed = path.exists()
     with path.open("a") as f:
         f.write(content.rstrip() + "\n")
@@ -159,7 +192,7 @@ def write_note(name: str, content: str):
     required=["name"],
 )
 def delete_note(name: str):
-    path = _note_path(name)
+    path = note_path(name)
     if not path.exists():
         return f"There is no note called '{name}'."
     path.unlink()

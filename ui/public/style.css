@@ -544,3 +544,197 @@ ol.facts li {
     left: 12px;
   }
 }
+
+/* ---------------------------------------------------------------- forms */
+
+.control {
+  display: block;
+  margin-bottom: 14px;
+}
+
+.control-label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12.5px;
+  color: var(--ink);
+  margin-bottom: 5px;
+}
+
+.control-help {
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--ink-faint);
+  margin-top: 5px;
+}
+
+.input {
+  font: inherit;
+  font-size: 13px;
+  width: 100%;
+  padding: 7px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  background: rgba(0, 0, 0, 0.28);
+  color: var(--ink);
+  transition:
+    border-color 0.15s,
+    background 0.15s;
+}
+
+.input:focus {
+  outline: none;
+  border-color: rgba(124, 92, 255, 0.55);
+  background: rgba(0, 0, 0, 0.4);
+}
+
+select.input {
+  cursor: pointer;
+}
+
+textarea.editor {
+  min-height: 240px;
+  resize: vertical;
+  font-family: ui-monospace, 'Cascadia Code', 'Fira Code', monospace;
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+/* A checkbox styled as a switch: the state has to be readable at a glance
+   from across the room, which a 13px tick mark is not. */
+.switch {
+  appearance: none;
+  width: 38px;
+  height: 22px;
+  border-radius: 11px;
+  border: 1px solid var(--line);
+  background: rgba(0, 0, 0, 0.35);
+  position: relative;
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    border-color 0.15s;
+  flex: none;
+}
+
+.switch::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--ink-faint);
+  transition:
+    transform 0.15s ease,
+    background 0.15s;
+}
+
+.switch:checked {
+  background: rgba(124, 92, 255, 0.3);
+  border-color: rgba(124, 92, 255, 0.5);
+}
+
+.switch:checked::after {
+  transform: translateX(16px);
+  background: var(--ink);
+}
+
+/* ----------------------------------------------------------------- lists */
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.item {
+  padding: 9px 11px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.02);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+button.item.clickable {
+  font: inherit;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+  width: 100%;
+  transition:
+    border-color 0.15s,
+    background 0.15s;
+}
+
+button.item.clickable:hover {
+  border-color: #33394c;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.item.row {
+  flex-direction: row;
+  align-items: center;
+}
+
+.row.spaced {
+  justify-content: space-between;
+  margin: 10px 0;
+}
+
+.ellipsis {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mono {
+  font-family: ui-monospace, 'Cascadia Code', 'Fira Code', monospace;
+  font-size: 11.5px;
+}
+
+.tag {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 2px 6px;
+  border-radius: 5px;
+  border: 1px solid var(--line);
+  color: var(--ink-faint);
+}
+
+.tag.warn {
+  color: var(--warm);
+  border-color: rgba(240, 136, 62, 0.35);
+}
+
+.warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 9px 11px;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(240, 136, 62, 0.28);
+  background: rgba(240, 136, 62, 0.08);
+  color: var(--warm);
+  font-size: 12px;
+  line-height: 1.45;
+  margin-bottom: 12px;
+}
+
+/* Save stays reachable without scrolling back up a long settings form. */
+.sticky-actions {
+  position: sticky;
+  bottom: -14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 16px -14px -14px;
+  padding: 12px 14px;
+  border-top: 1px solid var(--line-soft);
+  background: rgba(15, 18, 24, 0.97);
+  backdrop-filter: blur(14px);
+}
