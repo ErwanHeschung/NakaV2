@@ -29,30 +29,48 @@ interface Handlers {
 }
 
 export function listen(handlers: Handlers): () => void {
-  const source = new EventSource('/events');
+  let source: EventSource | null = null;
+  let stopped = false;
 
-  source.addEventListener('open', () => {
-    handlers.onConnection?.(true);
-  });
+  const open = (): void => {
+    if (stopped) return;
+    source = new EventSource('/events');
 
-  source.addEventListener('error', () => {
-    // Not fatal and not worth reporting loudly: EventSource is already
-    // retrying, and a server restart takes this path every time.
-    handlers.onConnection?.(false);
-  });
+    source.addEventListener('open', () => {
+      handlers.onConnection?.(true);
+    });
 
-  source.addEventListener('message', (event: MessageEvent<string>) => {
-    let parsed: ServerEvent;
-    try {
-      // oxlint-disable-next-line typescript/no-unsafe-type-assertion
-      parsed = JSON.parse(event.data) as ServerEvent;
-    } catch {
-      return;
-    }
-    if (typeof parsed.topic === 'string') handlers.onEvent(parsed);
-  });
+    source.addEventListener('error', () => {
+      // Not fatal and not worth reporting loudly: EventSource is already
+      // retrying, and a server restart takes this path every time.
+      handlers.onConnection?.(false);
+    });
+
+    source.addEventListener('message', (event: MessageEvent<string>) => {
+      let parsed: ServerEvent;
+      try {
+        // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+        parsed = JSON.parse(event.data) as ServerEvent;
+      } catch {
+        return;
+      }
+      if (typeof parsed.topic === 'string') handlers.onEvent(parsed);
+    });
+  };
+
+  // Opened once the page has loaded rather than during module evaluation.
+  //
+  // Only a small thing: browsers allow six connections per origin over
+  // HTTP/1.1, and this one is held for the life of the tab, so there is no
+  // reason for it to compete with the module graph and the stylesheet while
+  // those are still arriving. It does not block the load event — that was
+  // measured, after a page that would not load turned out to have nothing to
+  // do with this and everything to do with WSL2 forwarding.
+  if (document.readyState === 'complete') open();
+  else globalThis.addEventListener('load', open, { once: true });
 
   return () => {
-    source.close();
+    stopped = true;
+    source?.close();
   };
 }
