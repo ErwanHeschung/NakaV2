@@ -156,7 +156,7 @@ async def remember(user_text: str, reply: str) -> None:
     memory.add_turn(user_text, reply)
     # Both run off the response path: each is another generation, and neither
     # is worth making the user wait for.
-    asyncio.create_task(memory.consider_fact(user_text, reply))
+    asyncio.create_task(memory.reconcile(user_text, reply))
     if memory.needs_summary():
         asyncio.create_task(memory.summarise())
 

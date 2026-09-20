@@ -171,6 +171,24 @@ def _facts_limits():
     return FACTS.get("max", 25), FACTS.get("max_chars", 120)
 
 
+def validate_fact(fact: str) -> str | None:
+    """Why this is not a usable fact, or None if it is.
+
+    Shared with the memory reconciler so both paths reject the same things —
+    notably a fact built around a pronoun, which is unreadable once the
+    conversation that gave it meaning has gone.
+    """
+    _, max_chars = _facts_limits()
+    text = " ".join(fact.split())
+    if len(text) < 8:
+        return "too short to be a useful fact"
+    if len(text) > max_chars:
+        return f"{len(text)} characters, longer than the {max_chars} allowed"
+    if re.search(r"\b(this|that|it)\b\s*$", text.lower().rstrip(".")):
+        return "ends on a pronoun, so it will not make sense later"
+    return None
+
+
 # Verbs and fillers that say how someone relates to a subject rather than what
 # the subject is. Ignoring them means "loves hiking" and "does not like hiking"
 # compare as the same topic — which is the point, because a fact that reverses

@@ -27,31 +27,60 @@ SUMMARISE_AFTER = 6
 
 # Cheap gate: if he said nothing about himself, there is nothing to extract
 # and the extra generation is not worth spending.
-FIRST_PERSON = re.compile(r"\b(i|i'm|im|my|mine|me|i've|i'll|j'|je|mon|ma|mes)\b",
-                          re.IGNORECASE)
+RECONCILE_LINE = re.compile(
+    r"^(ADD|UPDATE|DELETE)\s*(\d+)?\s*:?\s*(.*)$", re.IGNORECASE)
 
-FACT_PROMPT = (
-    "You decide whether one exchange contains a new durable fact about the "
-    "user that is not already known.\n\n"
-    "Already known:\n{known}\n\n"
-    "Reply with a single short sentence in the third person if — and only if "
-    "— the user stated something new about themselves that will still matter "
-    "in six months: health, allergies, people close to them, strong "
-    "preferences, constraints, work lasting months, how they want to be "
-    "treated.\n\n"
-    "If the user explicitly asks you to remember or save something, that is "
-    "always worth keeping — resolve what they meant from the conversation "
-    "above and write it out in full. Never store a fact containing 'this', "
-    "'that' or 'it'; name the thing.\n\n"
-    "Reply with exactly NONE when:\n"
-    "- it is already covered by something known above, even if worded "
-    "differently or combined with other known facts;\n"
-    "- the user is correcting, retracting, or asking to forget something. "
-    "Removal is handled elsewhere and is not your job — never reply with a "
-    "negated version of a known fact;\n"
-    "- it is passing: what they did today, how they feel now, questions, or "
-    "opinions about the immediate topic.\n\n"
-    "Most exchanges are NONE. Reply with the fact or NONE, nothing else."
+
+def _fact_limits():
+    from .tools.registry import FACTS
+    return FACTS.get("max", 25), FACTS.get("max_chars", 120)
+
+
+# Cheap gate, to avoid spending a generation on turns that cannot change
+# anything. It has to catch two shapes: the user saying something about
+# themselves, and the user asking for the memory itself to change. "Can you
+# remove the thing about hiking" contains no first-person pronoun at all, and
+# the earlier first-person-only gate silently swallowed every such request.
+WORTH_CHECKING = re.compile(
+    r"\b(i|i'm|im|my|mine|me|i've|i'll|j'|je|mon|ma|mes|"
+    r"remember|remembers|forget|forgets|remove|removes|delete|deletes|"
+    r"drop|erase|clear|save|store|keep|oublie|retiens|souviens|"
+    r"supprime|enleve|enl\u00e8ve|efface)\b",
+    re.IGNORECASE)
+
+# The memory layer decides what to DO, not merely what to extract. Following
+# the shape Mem0 uses: a candidate is compared against what is already known
+# and the model picks an operation rather than always appending. An
+# extract-only stage cannot express "that is now wrong", which is why
+# retractions previously became negated duplicates and deletions depended on
+# the model choosing to call a tool mid-conversation — which it often did not,
+# while saying it had.
+#
+# No vector search: at a couple of dozen facts the whole list fits in the
+# prompt, and showing all of it avoids a retrieval step that can miss the very
+# fact being contradicted.
+RECONCILE_PROMPT = (
+    "You maintain a short list of durable facts about the user.\n\n"
+    "Current facts, numbered:\n{known}\n\n"
+    "Read the conversation and decide what should change. Reply with one "
+    "operation per line, and nothing else:\n"
+    "  ADD: <a new fact, one short sentence, third person>\n"
+    "  UPDATE <n>: <the corrected wording of fact n>\n"
+    "  DELETE <n>\n"
+    "  NOOP\n\n"
+    "Rules:\n"
+    "- DELETE when the user asks you to forget something, or says a fact is "
+    "wrong. Do not add a negated version — remove it.\n"
+    "- UPDATE when a fact is still about the same thing but the details have "
+    "changed.\n"
+    "- ADD only for something durable and genuinely new: health, people close "
+    "to them, strong preferences, constraints, long-running work, how they "
+    "want to be treated. An explicit request to remember always counts.\n"
+    "- NOOP for anything passing, already known, or merely reworded. Most "
+    "turns are NOOP.\n"
+    "- Resolve references from the conversation. Never write a fact "
+    "containing 'this', 'that' or 'it' — name the thing.\n"
+    "- Judge the final exchange; earlier turns are context only."
 )
 
 SUMMARY_PROMPT = (
@@ -172,51 +201,83 @@ class Memory:
         log.info("summarised in %.0fms: %r",
                  (time.perf_counter() - start) * 1000, self.summary[:120])
 
-    async def consider_fact(self, user_text: str, reply: str) -> str | None:
-        """Decide, after the fact, whether the exchange held something durable.
+    async def reconcile(self, user_text: str, reply: str) -> list[str]:
+        """Bring the fact list in line with what was just said.
 
-        Asking the model to notice this mid-conversation does not work: given
-        eleven tools and a conversational turn, a 12B model answers warmly and
-        never reaches for one — it says "I'll remember that" and remembers
-        nothing, which is worse than not offering to. A separate pass with one
-        job and one question behaves much better, and runs in the background so
-        it costs no latency.
+        One pass decides and applies ADD, UPDATE, DELETE or NOOP. It runs in
+        the background, and it is the only thing that writes facts — the model
+        is not asked to manage its own memory mid-conversation, because it
+        reliably claims to have done so without doing it.
         """
         from . import llm, settings
-        from .tools.builtin import remember
+        from .tools.builtin import validate_fact
 
-        # Nothing self-referential was said, so there is nothing to keep.
-        if not FIRST_PERSON.search(user_text):
-            return None
+        if not WORTH_CHECKING.search(user_text):
+            return []
 
-        known = "\n".join(f"- {f}" for f in self.facts) or "- nothing yet"
         who = settings.IDENTITY["user"]
         me = settings.IDENTITY["assistant"]
-
-        # The preceding turns come too. Judged on the latest exchange alone,
-        # "save that I like this" has no referent — the thing being liked was
-        # named a turn earlier — and the extractor could only answer NONE.
+        known = "\n".join(f"{i}. {f}" for i, f in enumerate(self.facts, 1)) \
+            or "(none yet)"
         history = "\n".join(f"{who}: {spoken}\n{me}: {answered}"
                             for spoken, answered in self.recent)
         exchange = f"{who}: {user_text}\n{me}: {reply}"
-        transcript = f"{history}\n{exchange}" if history else exchange
 
-        verdict = (await llm.complete([
-            {"role": "system", "content": FACT_PROMPT.format(known=known)},
+        raw = await llm.complete([
+            {"role": "system", "content": RECONCILE_PROMPT.format(known=known)},
             {"role": "user", "content":
-                f"{transcript}\n\nJudge only the final exchange, using what "
-                f"came before it to resolve anything it refers to."},
-        ])).strip().strip('"')
+                (f"{history}\n{exchange}" if history else exchange)},
+        ])
 
-        if not verdict or verdict.upper().startswith("NONE"):
-            log.info("nothing worth keeping in %r", user_text[:60])
-            return None
+        applied = []
+        # Deletions are applied last so earlier operations are not thrown off
+        # by the renumbering, and highest-first for the same reason.
+        deletions = []
+        for line in raw.strip().splitlines():
+            line = line.strip().strip("-*` ")
+            if not line or line.upper().startswith("NOOP"):
+                continue
+            match = RECONCILE_LINE.match(line)
+            if not match:
+                continue
+            op, number, text = match.group(1).upper(), match.group(2), match.group(3)
 
-        # Goes through the tool, so the cap, length limit and duplicate check
-        # apply exactly as they would if she had called it herself.
-        outcome = remember(verdict)
-        log.info("fact considered: %r -> %s", verdict, outcome)
-        return verdict
+            if op == "DELETE" and number:
+                deletions.append(int(number))
+            elif op == "UPDATE" and number and text:
+                index = int(number) - 1
+                if 0 <= index < len(self.facts):
+                    problem = validate_fact(text)
+                    if problem:
+                        log.info("rejected update: %s", problem)
+                        continue
+                    applied.append(f"updated {self.facts[index]!r} -> {text!r}")
+                    self.facts[index] = text
+            elif op == "ADD" and text:
+                problem = validate_fact(text)
+                if problem:
+                    log.info("rejected add: %s", problem)
+                    continue
+                if any(f.lower() == text.lower() for f in self.facts):
+                    continue
+                max_facts, _ = _fact_limits()
+                if len(self.facts) >= max_facts:
+                    log.info("at the %d-fact limit, not adding %r",
+                             max_facts, text)
+                    continue
+                self.facts.append(text)
+                applied.append(f"added {text!r}")
+
+        for number in sorted(set(deletions), reverse=True):
+            if 1 <= number <= len(self.facts):
+                applied.append(f"deleted {self.facts.pop(number - 1)!r}")
+
+        if applied:
+            self.save_facts()
+            log.info("memory: %s", "; ".join(applied))
+        else:
+            log.info("memory: nothing to change after %r", user_text[:50])
+        return applied
 
     def forget(self) -> None:
         self.recent.clear()

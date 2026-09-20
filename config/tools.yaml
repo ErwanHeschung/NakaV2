@@ -69,14 +69,14 @@ tools:
     enabled: true
     destructive: true
 
+  # Memory is maintained by the reconciler after each turn, not by the model
+  # calling a tool mid-conversation. It would say "I'll hang onto that" or
+  # "done, cleared it" and call nothing, leaving the claim false. Left
+  # registered but disabled so the history of why is visible.
   remember:
-    enabled: true
+    enabled: false
     destructive: false
 
   forget_fact:
-    enabled: true
-    # Not gated behind confirmation, deliberately. A fact is cheap to restate
-    # and every deletion is recorded in logs/audit.jsonl with its wording, so
-    # the cost of a wrong one is low — whereas asking before each removal made
-    # the list tedious to keep honest, which is worse than the risk.
+    enabled: false
     destructive: false
