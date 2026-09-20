@@ -14,8 +14,9 @@ from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import agent, llm, logprune, models, ops, panel, settings, stt, tts, turnlog
+from . import agent, events, llm, logprune, models, ops, panel, settings, stt, tts, turnlog
 from .memory import memory
+from .tools import builtin
 from .tools.registry import AGENT, available
 
 def turn_note(woke: float) -> str:
@@ -55,16 +56,39 @@ logging.basicConfig(
 log = logging.getLogger("naka")
 
 
+async def timer_watcher():
+    """Ring timers as they come due.
+
+    Half a second is the resolution: finer buys nothing a person can perceive
+    in a kitchen timer, and the loop is otherwise free. Timers are taken, not
+    read, so a slow fan-out cannot ring the same one twice.
+    """
+    while True:
+        await asyncio.sleep(0.5)
+        try:
+            for timer in builtin.take_due_timers():
+                log.info("timer %r came due", timer["label"])
+                await events.hub.send({"type": "timer", "label": timer["label"],
+                                       "at": time.time()})
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            # A watcher that dies takes every future timer with it silently.
+            log.exception("timer watcher stumbled, continuing")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     models.load()
     models.warmup()
     watcher = asyncio.create_task(ops.idle_watcher())
     pruning = asyncio.create_task(logprune.pruner())
+    ringing = asyncio.create_task(timer_watcher())
     log.info("ready on %s:%s", settings.SERVER["host"], settings.SERVER["port"])
     yield
     watcher.cancel()
     pruning.cancel()
+    ringing.cancel()
     models.unload()
 
 
@@ -114,6 +138,18 @@ def reply_stream(user_text: str, agentic: bool, messages=None):
 
 
 app.include_router(panel.router)
+
+
+@app.get("/events")
+async def events_stream():
+    """Open for as long as the panel is. Timers ring down this."""
+    return StreamingResponse(
+        events.stream(),
+        media_type="text/event-stream",
+        # Buffering anywhere in between would hold a ring until the next
+        # event pushed it out, which for a timer is the whole point missed.
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @app.get("/health")

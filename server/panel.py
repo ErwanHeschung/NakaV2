@@ -20,10 +20,9 @@ import tomlkit
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from . import settings
+from . import events, settings
 from .memory import memory
 from .tools import builtin
-from .tools.registry import AGENT
 
 log = logging.getLogger("naka.panel")
 
@@ -42,7 +41,10 @@ async def client_config():
         "push_to_talk_key": settings.CLIENT["push_to_talk_key"],
         "listen_when_open": settings.CLIENT["listen_when_open"],
         "sample_rate": settings.TTS["sample_rate"],
-        "agentic": AGENT["default_agentic"],
+        # The panel's own choice, not the server's default. default_agentic in
+        # tools.yaml decides what a request that says nothing gets; every real
+        # client says, and both of these now say yes.
+        "agentic": settings.CLIENT["use_tools"],
     }
 
 
@@ -122,11 +124,14 @@ async def timers_list():
     return {
         "timers": builtin.live_timers(),
         "now": time.time(),
-        # Said plainly rather than left for the user to discover: a timer that
-        # is listed but silent looks like a bug until you know why.
-        "can_fire": False,
-        "note": "Timers are tracked but cannot ring yet — nothing here can "
-                "reach you when one runs out.",
+        # Whether anything is actually listening, not whether the feature
+        # exists. A timer with no panel open still expires silently, and that
+        # is worth saying rather than leaving to be discovered at dinner.
+        "can_fire": events.hub.listeners > 0,
+        "listeners": events.hub.listeners,
+        "note": "" if events.hub.listeners else
+                "No panel is open to ring, so a timer that comes due now will "
+                "pass silently.",
     }
 
 
@@ -175,6 +180,11 @@ FIELDS: list[Field] = [
     Field("settings.client.push_to_talk_key", "Push to talk", "key", "Talking",
           "Hold this to speak. Named as the browser names it, so it follows "
           "the physical key rather than the character it types."),
+    Field("settings.client.use_tools", "Let her use her tools", "bool",
+          "Talking",
+          "Timers, notes, the clock, GPU status. Costs about 600ms a reply, "
+          "because she has to finish deciding whether to call one before she "
+          "can start speaking. Off, she can only talk."),
     Field("settings.client.listen_when_open", "Listen while the panel is open",
           "bool", "Talking",
           "The browser holds the microphone for as long as the tab is open, "

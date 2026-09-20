@@ -15,7 +15,8 @@ SETTINGS_FILE = CONFIG / "settings.toml"
 VOICE_FILE = CONFIG / "voice.toml"
 
 _DEFAULTS = {
-    "client": {"push_to_talk_key": "ControlRight", "listen_when_open": True},
+    "client": {"push_to_talk_key": "ControlRight", "listen_when_open": True,
+               "use_tools": True},
     "identity": {"assistant": "Naka", "user": "User", "user_pronoun": "they",
                  "user_possessive": "their"},
     "logs": {"retention_days": 0},

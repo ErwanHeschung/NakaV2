@@ -20,6 +20,11 @@ push_to_talk_key = "ControlRight"
 # on, the browser holds the mic stream for as long as the tab is, which is
 # what the recording indicator in the tab strip is showing.
 listen_when_open = true
+# Whether the panel offers Naka her tools — timers, notes, the clock, GPU
+# status. Costs roughly 600ms per reply, because she must finish deciding
+# whether to call one before anything can be spoken. Off is faster and can
+# only talk; the Python client's --no-tools is the same switch.
+use_tools = true
 
 [server]
 host = "127.0.0.1"

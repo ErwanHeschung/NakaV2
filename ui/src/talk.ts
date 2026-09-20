@@ -18,6 +18,7 @@
  */
 
 import { type ClientConfig, api } from './api.js';
+import { audioContext } from './sound.js';
 
 export type TalkState = 'off' | 'ready' | 'listening' | 'thinking' | 'speaking';
 
@@ -31,12 +32,20 @@ interface Handlers {
 /** Below this an utterance is a key bounce, not speech. */
 const MIN_SECONDS = 0.3;
 
+function same(a: ClientConfig, b: ClientConfig): boolean {
+  return (
+    a.push_to_talk_key === b.push_to_talk_key &&
+    a.listen_when_open === b.listen_when_open &&
+    a.agentic === b.agentic &&
+    a.sample_rate === b.sample_rate
+  );
+}
+
 export class Talk {
   private config: ClientConfig | null = null;
   private stream: MediaStream | null = null;
   private recorder: MediaRecorder | null = null;
   private chunks: Blob[] = [];
-  private audio: AudioContext | null = null;
   private analyser: AnalyserNode | null = null;
   private levelFrame = 0;
   private held = false;
@@ -59,14 +68,23 @@ export class Talk {
     else this.set('off', 'microphone not open');
   }
 
-  /** Re-read the config, so a key change in Settings takes effect at once. */
+  /**
+   * Re-read the config and apply anything that changed.
+   *
+   * Called on a save and on the slow poll, because a tab left open otherwise
+   * keeps whatever it read at load time forever — which is how a page open
+   * across a settings change went on asking for no tools long after the
+   * server had started offering them.
+   */
   async refresh(): Promise<void> {
     const next = await api.clientConfig();
-    const wasOpen = this.stream !== null;
+    const before = this.config;
     this.config = next;
-    if (next.listen_when_open && !wasOpen) await this.arm();
-    else if (!next.listen_when_open && wasOpen) this.disarm();
-    else if (wasOpen) this.set('ready');
+    if (before && same(before, next)) return;
+
+    if (next.listen_when_open && !this.armed) await this.arm();
+    else if (!next.listen_when_open && this.armed) this.disarm();
+    else if (this.armed && this.state === 'ready') this.set('ready');
   }
 
   get key(): string {
@@ -119,8 +137,7 @@ export class Talk {
   }
 
   private context(): AudioContext {
-    this.audio ??= new AudioContext();
-    return this.audio;
+    return audioContext();
   }
 
   private set(state: TalkState, detail?: string): void {

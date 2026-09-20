@@ -18,6 +18,8 @@ import {
   renderTimers,
   renderTools,
 } from './panels.js';
+import { listen } from './events.js';
+import { chime, ensureNotifications, notify } from './sound.js';
 import { Talk, type TalkState } from './talk.js';
 import { card, icon, iconButton, keyName, panel, type IconName } from './ui.js';
 
@@ -98,6 +100,48 @@ function paintTalk(): void {
 void talk.start().then(paintTalk).catch(paintTalk);
 onSettingsSaved(() => {
   void talk.refresh();
+});
+
+/* -------------------------------------------------------------- ringing */
+
+const banner = el('div', { class: 'ring' });
+root.append(banner);
+
+function ring(label: string): void {
+  void chime();
+  notify('Timer', `${label} is up.`);
+  replace(
+    banner,
+    icon('bell'),
+    el('span', {}, `${label} is up.`),
+    el('button', {
+      class: 'icon-btn',
+      title: 'Dismiss',
+      onclick: () => {
+        banner.classList.remove('show');
+      },
+    }),
+  );
+  banner.querySelector('.icon-btn')?.append(icon('x', 'sm'));
+  banner.classList.add('show');
+  // Long enough to catch across a room, short enough that a timer from an
+  // hour ago is not still on screen.
+  setTimeout(() => {
+    banner.classList.remove('show');
+  }, 30000);
+  void api.timers().then((state) => {
+    timerCount = state.timers.length;
+    soonestTimer = '';
+  });
+}
+
+listen({
+  onTimer: ring,
+  onConnection: (live) => {
+    // Only worth saying when it is not: a panel that cannot be reached will
+    // not ring, and that is the kind of thing to find out before dinner.
+    document.body.classList.toggle('offline', !live);
+  },
 });
 
 /* ----------------------------------------------------------------- drawer */
@@ -295,8 +339,14 @@ poll(
   6000,
   async () => {
     renderConversation(await api.memory());
+    // Cheap, and it means a tab left open picks up a settings change instead
+    // of running on whatever it read when it loaded.
+    void talk.refresh().then(paintTalk);
     const [notes, timers] = await Promise.all([api.notes(), api.timers()]);
     noteCount = notes.notes.length;
+    if (timers.timers.length > 0 && timerCount === 0) {
+      void ensureNotifications();
+    }
     timerCount = timers.timers.length;
     const next = timers.timers[0];
     soonestTimer = next

@@ -124,6 +124,21 @@ def live_timers() -> list[dict]:
         )
 
 
+def take_due_timers() -> list[dict]:
+    """Remove and return every timer that has come due.
+
+    Taken rather than read, so that two watcher passes cannot ring the same
+    timer twice. Before this existed, live_timers() quietly dropped expired
+    ones and nothing was left to notice they had ever been set.
+    """
+    now = time.time()
+    with _timer_lock:
+        due = [v for v in _timers.values() if v["due"] <= now]
+        for timer in due:
+            _timers.pop(timer["label"], None)
+        return due
+
+
 def drop_timer(label: str) -> bool:
     with _timer_lock:
         return _timers.pop(label, None) is not None
