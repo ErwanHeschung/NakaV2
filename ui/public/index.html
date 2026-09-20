@@ -3,22 +3,13 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
     <title>Naka</title>
     <link rel="stylesheet" href="./style.css" />
   </head>
   <body>
-    <header><h1>Naka</h1></header>
-    <main>
-      <section class="panel">
-        <h2>Status</h2>
-        <div id="status"></div>
-      </section>
-      <section class="panel">
-        <h2>Memory</h2>
-        <div id="memory"></div>
-      </section>
-    </main>
-    <!-- Plain ES modules: tsc emits these directly, no bundler in the loop. -->
+    <div class="ambient"></div>
+    <div class="app" id="app"></div>
     <script type="module" src="./js/main.js"></script>
   </body>
 </html>

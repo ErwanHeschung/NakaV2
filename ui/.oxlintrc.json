@@ -20,7 +20,8 @@
     "unicorn/no-null": "off",
     "typescript/prefer-readonly-parameter-types": "off",
     "max-lines-per-function": "off",
-    "max-classes-per-file": "off"
+    "max-classes-per-file": "off",
+    "max-lines": "off"
   },
-  "ignorePatterns": ["public/js", "node_modules"]
+  "ignorePatterns": ["public/js", "node_modules", "scripts"]
 }
