@@ -39,6 +39,10 @@ FACT_PROMPT = (
     "in six months: health, allergies, people close to them, strong "
     "preferences, constraints, work lasting months, how they want to be "
     "treated.\n\n"
+    "If the user explicitly asks you to remember or save something, that is "
+    "always worth keeping — resolve what they meant from the conversation "
+    "above and write it out in full. Never store a fact containing 'this', "
+    "'that' or 'it'; name the thing.\n\n"
     "Reply with exactly NONE when:\n"
     "- it is already covered by something known above, even if worded "
     "differently or combined with other known facts;\n"
@@ -186,14 +190,26 @@ class Memory:
             return None
 
         known = "\n".join(f"- {f}" for f in self.facts) or "- nothing yet"
+        who = settings.IDENTITY["user"]
+        me = settings.IDENTITY["assistant"]
+
+        # The preceding turns come too. Judged on the latest exchange alone,
+        # "save that I like this" has no referent — the thing being liked was
+        # named a turn earlier — and the extractor could only answer NONE.
+        history = "\n".join(f"{who}: {spoken}\n{me}: {answered}"
+                            for spoken, answered in self.recent)
+        exchange = f"{who}: {user_text}\n{me}: {reply}"
+        transcript = f"{history}\n{exchange}" if history else exchange
+
         verdict = (await llm.complete([
             {"role": "system", "content": FACT_PROMPT.format(known=known)},
             {"role": "user", "content":
-                f"{settings.IDENTITY['user']}: {user_text}\n"
-                f"{settings.IDENTITY['assistant']}: {reply}"},
+                f"{transcript}\n\nJudge only the final exchange, using what "
+                f"came before it to resolve anything it refers to."},
         ])).strip().strip('"')
 
         if not verdict or verdict.upper().startswith("NONE"):
+            log.info("nothing worth keeping in %r", user_text[:60])
             return None
 
         # Goes through the tool, so the cap, length limit and duplicate check
