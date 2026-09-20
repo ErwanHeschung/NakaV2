@@ -112,8 +112,31 @@ app = FastAPI(title=settings.IDENTITY["assistant"], lifespan=lifespan)
 # keeps it on loopback and means no CORS. Mounted only if it has been built,
 # so the server still starts on a machine where the UI was never compiled.
 _UI = Path(__file__).resolve().parent.parent / "ui" / "public"
+
+
+class Panel(StaticFiles):
+    """Static files that are always revalidated.
+
+    Without Cache-Control, a browser is free to guess how long a file stays
+    fresh — roughly a tenth of its age — and serve it from cache without
+    asking. The panel's own files change constantly, so that guess produces a
+    page assembled from different builds: new main.js against a style.css
+    from ten minutes ago, which is how a stylesheet rule that was definitely
+    in the file on disk was definitely not in the browser.
+
+    no-cache does not mean do not store. The browser keeps the file and asks
+    whether it changed; the ETag makes the answer a 304 with no body. Over
+    loopback that costs nothing and removes the whole class of problem.
+    """
+
+    def file_response(self, *args, **kwargs):
+        response = super().file_response(*args, **kwargs)
+        response.headers["Cache-Control"] = "no-cache"
+        return response
+
+
 if (_UI / "index.html").exists():
-    app.mount("/ui", StaticFiles(directory=_UI, html=True), name="ui")
+    app.mount("/ui", Panel(directory=_UI, html=True), name="ui")
     log.info("control panel at http://%s:%s/ui",
              settings.SERVER["host"], settings.SERVER["port"])
 
