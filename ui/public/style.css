@@ -840,3 +840,43 @@ body.offline .brand .mark {
   background: var(--line);
   box-shadow: none;
 }
+
+/* ---------------------------------------------------------------- facts */
+
+.facts-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.fact {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+/* The number is the one the model uses to drop a fact precisely, so it is
+   shown rather than implied by position. */
+.fact-number {
+  width: 20px;
+  flex: none;
+  text-align: right;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-faint);
+}
+
+.fact .input {
+  font-size: 12.5px;
+  padding: 6px 9px;
+}
+
+.fact .icon-btn {
+  width: 30px;
+  height: 30px;
+  flex: none;
+}
+
+.fact .icon-btn:hover {
+  color: var(--ink);
+}

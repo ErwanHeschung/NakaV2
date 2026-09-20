@@ -25,6 +25,12 @@ export interface MemoryState {
   pending_summary: number;
 }
 
+export interface FactsState {
+  facts: string[];
+  max: number;
+  max_chars: number;
+}
+
 export interface ToolInfo {
   name: string;
   destructive: boolean;
@@ -166,6 +172,36 @@ export class NakaApi {
 
   memory(): Promise<MemoryState> {
     return this.request('/memory');
+  }
+
+  facts(): Promise<FactsState> {
+    return this.request('/memory/facts');
+  }
+
+  addFact(text: string): Promise<FactsState> {
+    return this.request('/memory/facts', {
+      method: 'POST',
+      body: JSON.stringify({ text }),
+    });
+  }
+
+  /**
+   * `expect` is what the panel last displayed. The reconciler rewrites the
+   * list after every turn, so the server refuses an edit aimed at a line that
+   * has since changed rather than silently rewriting the wrong one.
+   */
+  editFact(number: number, text: string, expect: string): Promise<FactsState> {
+    return this.request(`/memory/facts/${number}`, {
+      method: 'PUT',
+      body: JSON.stringify({ text, expect }),
+    });
+  }
+
+  deleteFact(number: number, expect: string): Promise<FactsState> {
+    return this.request(
+      `/memory/facts/${number}?expect=${encodeURIComponent(expect)}`,
+      { method: 'DELETE' },
+    );
   }
 
   reloadMemory(): Promise<unknown> {

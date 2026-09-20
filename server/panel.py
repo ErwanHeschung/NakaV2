@@ -23,6 +23,8 @@ from pydantic import BaseModel
 from . import events, settings
 from .memory import memory
 from .tools import builtin
+from .tools.builtin import validate_fact
+from .tools.registry import FACTS
 
 log = logging.getLogger("naka.panel")
 
@@ -111,6 +113,88 @@ def _resolve(name: str) -> Path:
         return builtin.note_path(name)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+# ------------------------------------------------------------------- facts
+
+
+class FactIn(BaseModel):
+    text: str
+    # What the caller believes is there now. The reconciler rewrites this list
+    # in a background task after every turn, so a number the panel read a
+    # moment ago can already point at a different fact — and an edit that
+    # silently lands on the wrong line is worse than one that is refused.
+    expect: str | None = None
+
+
+def _facts_view() -> dict:
+    return {"facts": memory.facts, "max": FACTS.get("max", 25),
+            "max_chars": FACTS.get("max_chars", 120)}
+
+
+def _check(number: int, expect: str | None) -> int:
+    """Validate a 1-based fact number and return its index.
+
+    Numbered from one because that is what the persona shows her and what
+    forget_fact takes, so the panel and the model count the same way.
+    """
+    index = number - 1
+    if not 0 <= index < len(memory.facts):
+        raise HTTPException(status_code=404, detail=f"there is no fact {number}")
+    if expect is not None and memory.facts[index] != expect:
+        raise HTTPException(
+            status_code=409,
+            detail=f"fact {number} changed underneath you — it now reads "
+                   f"{memory.facts[index]!r}",
+        )
+    return index
+
+
+def _usable(text: str) -> str:
+    cleaned = " ".join(text.split())
+    why = validate_fact(cleaned)
+    if why:
+        raise HTTPException(status_code=400, detail=f"Not a usable fact: {why}.")
+    return cleaned
+
+
+@router.get("/memory/facts")
+async def facts_list():
+    return _facts_view()
+
+
+@router.post("/memory/facts")
+async def fact_add(body: FactIn):
+    cap = FACTS.get("max", 25)
+    if len(memory.facts) >= cap:
+        raise HTTPException(
+            status_code=400,
+            detail=f"That is the {cap}th fact — drop one first. The cap is "
+                   f"deliberate: every fact is in the prompt on every turn.",
+        )
+    memory.facts.append(_usable(body.text))
+    memory.save_facts()
+    events.publish("memory")
+    return _facts_view()
+
+
+@router.put("/memory/facts/{number}")
+async def fact_edit(number: int, body: FactIn):
+    index = _check(number, body.expect)
+    memory.facts[index] = _usable(body.text)
+    memory.save_facts()
+    events.publish("memory")
+    return _facts_view()
+
+
+@router.delete("/memory/facts/{number}")
+async def fact_delete(number: int, expect: str | None = None):
+    index = _check(number, expect)
+    dropped = memory.facts.pop(index)
+    memory.save_facts()
+    events.publish("memory")
+    log.info("fact %d deleted from the panel: %r", number, dropped)
+    return _facts_view()
 
 
 # ------------------------------------------------------------------ timers
