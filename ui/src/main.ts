@@ -131,6 +131,23 @@ function ring(label: string): void {
   }, 30000);
 }
 
+/**
+ * Read everything that is on screen again.
+ *
+ * Called whenever the stream has been away, because nothing is replayed to a
+ * client that reconnects: a change made during the gap is one this panel
+ * would otherwise never hear about, and the panel would sit there confidently
+ * showing something that stopped being true a minute ago.
+ */
+function resync(): void {
+  refreshOpenSection();
+  void refreshCounts().catch(() => null);
+  void api
+    .memory()
+    .then(renderConversation)
+    .catch(() => null);
+}
+
 listen({
   onEvent: (event) => {
     // A timer coming due is the one event that carries something to do
@@ -144,7 +161,16 @@ listen({
     // Only worth saying when it is not: a panel that cannot be reached will
     // not ring, and that is the kind of thing to find out before dinner.
     document.body.classList.toggle('offline', !live);
+    // Every open is a reconnect after the first, and a reconnect means a
+    // window of changes that were published to nobody.
+    if (live) resync();
   },
+});
+
+// A backgrounded tab gets throttled and its connections dropped, so coming
+// back to the panel is the other moment its contents cannot be trusted.
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') resync();
 });
 
 /* ----------------------------------------------------------------- drawer */
@@ -258,6 +284,10 @@ function refreshOpenSection(): void {
   if (!section) return;
   const body = drawer.querySelector<HTMLElement>('.panel-body');
   if (!body) return;
+  // A section that is holding unsaved input keeps it. Rebuilding under
+  // someone mid-sentence to show them a note they did not change is not a
+  // fresher panel, it is a lost draft.
+  if (body.dataset.busy !== undefined) return;
   const top = body.scrollTop;
   teardown();
   closeSection = section.render(body) ?? null;

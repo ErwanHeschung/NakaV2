@@ -56,6 +56,19 @@ function loading(body: HTMLElement): void {
   replace(body, el('p', { class: 'muted' }, 'Loading…'));
 }
 
+/**
+ * Mark a section as holding unsaved input.
+ *
+ * A refresh rebuilds a section from scratch, which is right for a list and
+ * destructive for a half-written note or a form with pending edits. The shell
+ * checks this before rebuilding, so a change elsewhere never costs someone
+ * what they were in the middle of typing.
+ */
+function busy(body: HTMLElement, editing: boolean): void {
+  if (editing) body.dataset.busy = 'yes';
+  else delete body.dataset.busy;
+}
+
 /** A one-line result that clears itself, for saves and deletes. */
 function flash(host: HTMLElement, message: string, kind = 'muted'): void {
   replace(host, el('span', { class: kind }, message));
@@ -144,6 +157,7 @@ export function renderTools(body: HTMLElement): void {
 /* ------------------------------------------------------------------ notes */
 
 export function renderNotes(body: HTMLElement): void {
+  busy(body, false);
   loading(body);
   void api
     .notes()
@@ -194,6 +208,7 @@ export function renderNotes(body: HTMLElement): void {
 /** `null` opens a blank note; the name is asked for on the first save. */
 function openNote(body: HTMLElement, name: string | null): void {
   const show = (title: string, content: string): void => {
+    busy(body, true);
     let draft = content;
     let filename = name ?? '';
     const status = el('span', {});
@@ -475,6 +490,7 @@ export function renderSettings(body: HTMLElement): void {
 }
 
 function paintSettings(body: HTMLElement, state: SettingsState): void {
+  busy(body, false);
   // Only what the user actually touched is sent, so a save never rewrites a
   // value someone else changed in the file since this panel was opened.
   const pending = new Map<string, string | number | boolean>();
@@ -489,6 +505,7 @@ function paintSettings(body: HTMLElement, state: SettingsState): void {
     if (field && field.value === value) pending.delete(key);
     else pending.set(key, value);
     saveButton.disabled = pending.size === 0;
+    busy(body, pending.size > 0);
     replace(
       status,
       pending.size > 0

@@ -113,6 +113,15 @@ async def stream() -> AsyncIterator[str]:
         # Sent immediately so the response headers leave now rather than when
         # the first timer happens to fire, which is what makes EventSource
         # consider the connection open.
+        #
+        # The retry hint shortens the window this cannot cover. Nothing is
+        # replayed to a client that reconnects — a kitchen timer ringing ten
+        # minutes late is worse than one that never rang — so a change made
+        # while a client is away is a change it never hears about. The client
+        # re-reads on every open for exactly that reason; this just makes the
+        # gap it has to repair a short one. Browsers default to about three
+        # seconds and back off from there.
+        yield "retry: 2000\n\n"
         yield ": connected\n\n"
         while True:
             try:
