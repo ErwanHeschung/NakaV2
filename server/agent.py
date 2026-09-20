@@ -83,8 +83,13 @@ async def resolve_pending(user_text: str) -> str | None:
     return call(name, arguments)
 
 
-async def run(messages: list[dict]) -> AsyncIterator[str]:
-    """Run the loop, yielding sentences as they are ready to speak."""
+async def run(messages: list[dict],
+              actions: list[dict] | None = None) -> AsyncIterator[str]:
+    """Run the loop, yielding sentences as they are ready to speak.
+
+    Anything actually run is appended to `actions`, so the turn can be
+    recorded as it happened rather than as it sounded.
+    """
     global pending
     kill_switch.reset()
     started = time.perf_counter()
@@ -128,6 +133,13 @@ async def run(messages: list[dict]) -> AsyncIterator[str]:
                 return
 
             result = call(name, arguments)
+            if actions is not None:
+                actions.append({
+                    "id": request.get("id", name),
+                    "name": name,
+                    "arguments": function.get("arguments") or "{}",
+                    "result": result,
+                })
             working.append({
                 "role": "tool",
                 "tool_call_id": request.get("id", name),

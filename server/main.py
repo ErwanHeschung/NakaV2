@@ -124,7 +124,7 @@ class TextIn(BaseModel):
     agentic: bool = AGENT["default_agentic"]
 
 
-def reply_stream(user_text: str, agentic: bool, messages=None):
+def reply_stream(user_text: str, agentic: bool, messages=None, actions=None):
     """Choose between plain streaming and the agentic loop.
 
     A confirmation left pending by a previous turn takes priority: this
@@ -141,7 +141,7 @@ def reply_stream(user_text: str, agentic: bool, messages=None):
         if messages is None:
             messages = memory.messages(user_text)
         if agentic:
-            async for sentence in agent.run(messages):
+            async for sentence in agent.run(messages, actions):
                 yield sentence
         else:
             async for sentence in llm.stream_sentences(messages):
@@ -198,25 +198,28 @@ async def chat_endpoint(body: TextIn):
         start = time.perf_counter()
         first = None
         spoken = []
-        async for sentence in reply_stream(body.text, body.agentic, messages):
+        actions: list[dict] = []
+        async for sentence in reply_stream(body.text, body.agentic, messages,
+                                           actions):
             now = (time.perf_counter() - start) * 1000
             if first is None:
                 first = now
                 log.info("llm first sentence %.0fms", now)
             spoken.append(sentence)
             yield json.dumps({"sentence": sentence, "ms": round(now)}) + "\n"
-        await remember(body.text, " ".join(spoken))
+        await remember(body.text, " ".join(spoken), actions)
 
     return StreamingResponse(generate(), media_type="application/x-ndjson")
 
 
-async def remember(user_text: str, reply: str) -> None:
+async def remember(user_text: str, reply: str,
+                   actions: list[dict] | None = None) -> None:
     """Record the turn, and fold older ones in when enough have accumulated.
 
     Summarising is a second generation, so it runs as a background task — the
     user is not made to wait for it inside the latency budget.
     """
-    memory.add_turn(user_text, reply)
+    memory.add_turn(user_text, reply, actions)
     # So the conversation appears as it happens rather than on the next poll.
     events.publish("conversation")
     # Both run off the response path: each is another generation, and neither
@@ -238,7 +241,7 @@ async def memory_state():
     return {
         "facts": memory.facts,
         "summary": memory.summary,
-        "recent": [{"user": u, "naka": a} for u, a in memory.recent],
+        "recent": [{"user": t.user, "naka": t.reply} for t in memory.recent],
         "pending_summary": len(memory.pending),
     }
 
@@ -362,11 +365,12 @@ async def converse(file: UploadFile,
         stream = tts.OpusStream() if format == "opus" else None
         first_sound = None
         spoken = []
+        actions: list[dict] = []
 
         # Its own span rather than one carried across the generator boundary,
         # so a client that hangs up mid-reply still releases the marker.
         async with ops.Busy():
-            async for sentence in reply_stream(heard, agentic, prompt):
+            async for sentence in reply_stream(heard, agentic, prompt, actions):
                 async with models.gpu_lock:
                     samples = await asyncio.to_thread(tts.synthesize, sentence)
                     chunk = (await asyncio.to_thread(stream.push, samples)
@@ -387,7 +391,7 @@ async def converse(file: UploadFile,
                 if tail:
                     yield tail
 
-        await remember(heard, " ".join(spoken))
+        await remember(heard, " ".join(spoken), actions)
         total = (time.perf_counter() - start) * 1000
         turnlog.record(
             heard=heard, messages=prompt, spoken=spoken, agentic=agentic,
