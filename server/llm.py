@@ -100,21 +100,68 @@ async def complete(messages: list[dict]) -> str:
     return response.json()["choices"][0]["message"]["content"]
 
 
-async def complete_with_tools(messages: list[dict], tools: list[dict]) -> dict:
-    """One non-streaming turn with tools offered. Returns the whole message.
+async def stream_with_tools(messages: list[dict], tools: list[dict]):
+    """One turn with tools offered, streamed.
 
-    Tool calls cannot be streamed usefully — nothing can be spoken until it is
-    known whether the model wants to talk or to act — so the agentic path
-    trades streaming for that decision.
+    Yields ("sentence", str) as sentences complete and, at the end,
+    ("tool_calls", list) if the model asked for any.
+
+    The agentic path used to be non-streaming on the grounds that nothing can
+    be spoken until it is known whether the model wants to talk or to act.
+    That is true, but the answer arrives in the very first delta — content or
+    tool_calls, never both — so it costs one delta to find out rather than the
+    whole reply. Measured on this setup, offering tools cost 610ms of extra
+    time-to-first-sentence even on turns that used no tool, purely from
+    waiting for a complete response.
     """
     url = f"{settings.LLM['url'].rstrip('/')}/v1/chat/completions"
-    body = _body(messages, stream=False)
+    body = _body(messages, stream=True)
     if tools:
         body["tools"] = tools
         body["tool_choice"] = "auto"
-    response = await client().post(url, json=body)
-    response.raise_for_status()
-    return response.json()["choices"][0]["message"]
+
+    buffer = ""
+    # Merged by index: arguments arrive a fragment at a time across deltas.
+    partial: dict[int, dict] = {}
+
+    async with client().stream("POST", url, json=body) as response:
+        response.raise_for_status()
+        async for line in response.aiter_lines():
+            if not line.startswith("data: "):
+                continue
+            payload = line[6:]
+            if payload == "[DONE]":
+                break
+            delta = json.loads(payload)["choices"][0].get("delta", {})
+
+            for call in delta.get("tool_calls") or []:
+                slot = partial.setdefault(
+                    call.get("index", 0),
+                    {"id": "", "function": {"name": "", "arguments": ""}},
+                )
+                if call.get("id"):
+                    slot["id"] = call["id"]
+                function = call.get("function") or {}
+                if function.get("name"):
+                    slot["function"]["name"] = function["name"]
+                if function.get("arguments"):
+                    slot["function"]["arguments"] += function["arguments"]
+
+            piece = delta.get("content")
+            if not piece:
+                continue
+            buffer += piece
+            while (match := SENTENCE_END.search(buffer)) is not None:
+                sentence, buffer = buffer[: match.end()], buffer[match.end():]
+                sentence = sentence.strip()
+                if sentence:
+                    yield "sentence", sentence
+
+    tail = buffer.strip()
+    if tail:
+        yield "sentence", tail
+    if partial:
+        yield "tool_calls", [partial[i] for i in sorted(partial)]
 
 
 def split_sentences(text: str) -> list[str]:

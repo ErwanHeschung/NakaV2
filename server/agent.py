@@ -114,16 +114,28 @@ async def run(messages: list[dict],
             yield "That took too long, so I stopped."
             return
 
-        message = await llm.complete_with_tools(working, schemas())
-        calls = message.get("tool_calls") or []
+        # Streamed, and spoken as it arrives. Content and tool_calls never
+        # both start a reply, so the first delta already says which this is —
+        # waiting for a complete response to find out was costing 610ms of
+        # time-to-first-sentence on every turn, tool or no tool.
+        calls: list[dict] = []
+        async for kind, payload in llm.stream_with_tools(working, schemas()):
+            if kind == "sentence":
+                yield payload
+            else:
+                calls = payload
 
         if not calls:
-            text = (message.get("content") or "").strip()
-            for sentence in llm.split_sentences(text):
-                yield sentence
             return
 
-        working.append(message)
+        working.append({
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [
+                {"id": c["id"], "type": "function", "function": c["function"]}
+                for c in calls
+            ],
+        })
 
         for request in calls:
             function = request.get("function", {})
@@ -166,7 +178,7 @@ async def run(messages: list[dict],
                 })
             working.append({
                 "role": "tool",
-                "tool_call_id": request.get("id", name),
+                "tool_call_id": request.get("id") or name,
                 "content": result,
             })
 
