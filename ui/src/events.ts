@@ -1,21 +1,29 @@
 /**
  * The server's side of the conversation, for things that are not answers.
  *
+ * The panel does not poll for changes; it is told. Every section names the
+ * topic it displays and is re-rendered when that topic fires, which makes
+ * being current the default rather than something each panel has to remember
+ * to arrange. A section that forgets to poll is stale forever; a section that
+ * forgets to name a topic simply does not refresh, which is visible the first
+ * time anyone looks at it.
+ *
  * EventSource rather than a WebSocket: nothing travels the other way, and it
  * reconnects by itself after a server restart or a sleeping laptop, which is
  * most of what a hand-written socket client ends up being.
  */
 
-export interface TimerRang {
-  type: 'timer';
-  label: string;
-  at: number;
+export type Topic = 'notes' | 'timers' | 'memory' | 'conversation' | 'settings';
+
+export interface ServerEvent {
+  topic: Topic;
+  /** Only on a timer that has come due. */
+  rang?: string;
+  at?: number;
 }
 
-type ServerEvent = TimerRang;
-
 interface Handlers {
-  onTimer: (label: string) => void;
+  onEvent: (event: ServerEvent) => void;
   /** Connected or not, for the status line. */
   onConnection?: (live: boolean) => void;
 }
@@ -41,7 +49,7 @@ export function listen(handlers: Handlers): () => void {
     } catch {
       return;
     }
-    if (parsed.type === 'timer') handlers.onTimer(parsed.label);
+    if (typeof parsed.topic === 'string') handlers.onEvent(parsed);
   });
 
   return () => {

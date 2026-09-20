@@ -1,5 +1,15 @@
 """Server to client push, over Server-Sent Events.
 
+Every change the panel might be showing is announced here, and the panel
+re-reads what it needs. That is the default rather than something added per
+feature: a panel that polls only what someone remembered to make it poll is a
+panel where the next thing added is stale, which is how both the timer list
+and the notes list ended up frozen on whatever was true when they opened.
+
+Events carry a topic and almost never any data. Telling a client what changed
+and letting it ask is far less fragile than shipping state down two paths and
+hoping they agree — the client already has an endpoint that returns the truth.
+
 Everything else here is request-shaped: the client asks and the server
 answers. A timer is the first thing that has to travel the other way — it
 comes due whether or not anyone is asking — so it needs a channel that is
@@ -52,7 +62,8 @@ class Hub:
         self._clients.discard(queue)
         log.info("client gone (%d listening)", len(self._clients))
 
-    async def send(self, event: dict) -> None:
+    def dispatch(self, event: dict) -> None:
+        """Fan out. Called on the loop thread; never blocks."""
         for queue in list(self._clients):
             try:
                 queue.put_nowait(event)
@@ -63,6 +74,32 @@ class Hub:
 
 
 hub = Hub()
+
+_loop: asyncio.AbstractEventLoop | None = None
+
+
+def bind(loop: asyncio.AbstractEventLoop) -> None:
+    """Remember the loop, so publish() can be called from anywhere."""
+    global _loop
+    _loop = loop
+
+
+def publish(topic: str, **data) -> None:
+    """Announce a change. Safe from any thread.
+
+    Tools run in a worker thread via asyncio.to_thread, so the obvious direct
+    call would be touching loop state from off the loop — which fails rarely
+    and confusingly rather than immediately.
+    """
+    event = {"topic": topic, **data}
+    if _loop is None:
+        return
+    try:
+        _loop.call_soon_threadsafe(hub.dispatch, event)
+    except RuntimeError:
+        # The loop is closing, which happens during shutdown. Nothing is
+        # listening by then anyway.
+        pass
 
 
 def frame(event: dict) -> str:

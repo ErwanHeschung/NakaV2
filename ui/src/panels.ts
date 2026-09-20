@@ -14,10 +14,12 @@ import {
   type NotesState,
   type SettingField,
   type SettingsState,
+  type Timer,
   type TimersState,
   type ToolsState,
 } from './api.js';
 import { el, relativeTime, replace } from './dom.js';
+import { ensureNotifications } from './sound.js';
 import {
   button,
   choiceField,
@@ -288,123 +290,153 @@ function modifiedAgo(modified: number): string {
 
 /* ----------------------------------------------------------------- timers */
 
-export function renderTimers(body: HTMLElement): void {
-  loading(body);
-  void api
-    .timers()
-    .then((state: TimersState) => {
-      // The server's clock is the one the timers were set against, so the
-      // countdown is driven from the offset rather than from Date.now()
-      // directly — otherwise a clock skew shows up as wrong time remaining.
-      const offset = state.now - Date.now() / 1000;
-      let label = '';
-      let minutes = 5;
-      const status = el('span', {});
+export function renderTimers(body: HTMLElement): () => void {
+  // The list is polled and the form is not. Re-rendering the whole panel on a
+  // poll would wipe whatever was half-typed into it every two seconds, and a
+  // timer set by voice has to appear here without the panel being reopened —
+  // which is what a render-once panel could never do.
+  const listHost = el('div', {});
+  const warning = el('div', {});
+  const status = el('span', {});
+  let label = '';
+  let minutes = 5;
 
-      const rows = state.timers.map((timer) => {
-        const left = el('span', { class: 'value mono' }, '');
-        const update = (): boolean => {
-          const remaining = Math.round(timer.due - (Date.now() / 1000 + offset));
-          left.textContent = remaining > 0 ? countdown(remaining) : 'done';
-          return remaining > 0;
-        };
-        update();
-        const handle = setInterval(() => {
-          // Stop ticking once it lands, and let the poll below replace the
-          // list. Left running, this would count into negative numbers.
-          if (!update()) clearInterval(handle);
-        }, 1000);
-        return el(
-          'div',
-          { class: 'item row spaced' },
+  /** Server time minus ours, so a clock skew is not read as time remaining. */
+  let offset = 0;
+  let showing: Timer[] = [];
+
+  const paintRemaining = (): void => {
+    for (const [index, node] of [...listHost.querySelectorAll('.left')].entries()) {
+      const timer = showing[index];
+      if (!timer) continue;
+      const remaining = Math.round(timer.due - (Date.now() / 1000 + offset));
+      node.textContent = remaining > 0 ? countdown(remaining) : 'ringing';
+    }
+  };
+
+  const paintList = (state: TimersState): void => {
+    offset = state.now - Date.now() / 1000;
+    showing = state.timers;
+
+    replace(
+      warning,
+      state.can_fire
+        ? null
+        : el(
+            'div',
+            { class: 'warning' },
+            icon('triangle-alert', 'sm'),
+            el('span', {}, state.note),
+          ),
+    );
+
+    if (state.timers.length === 0) {
+      replace(listHost, el('p', { class: 'muted' }, 'No timers running.'));
+      return;
+    }
+    replace(
+      listHost,
+      el(
+        'div',
+        { class: 'list' },
+        ...state.timers.map((timer) =>
           el(
             'div',
-            { class: 'row' },
-            icon('clock', 'sm'),
-            el('strong', {}, timer.label),
-          ),
-          el(
-            'div',
-            { class: 'row' },
-            left,
-            button(
-              'x',
-              'Cancel',
-              () => {
-                clearInterval(handle);
-                void api
-                  .cancelTimer(timer.label)
-                  .then(() => {
-                    renderTimers(body);
-                  })
-                  .catch((error: unknown) => {
-                    flash(status, reason(error), 'error');
-                  });
-              },
-              'danger',
-            ),
-          ),
-        );
-      });
-
-      replace(
-        body,
-        state.can_fire
-          ? null
-          : el(
+            { class: 'item row spaced' },
+            el(
               'div',
-              { class: 'warning' },
-              icon('triangle-alert', 'sm'),
-              el('span', {}, state.note),
+              { class: 'row' },
+              icon('clock', 'sm'),
+              el('strong', {}, timer.label),
             ),
-        rows.length > 0
-          ? el('div', { class: 'list' }, ...rows)
-          : el('p', { class: 'muted' }, 'No timers running.'),
-        el('h3', {}, 'New timer'),
-        control(
-          { label: 'For' },
-          textField(
-            '',
-            (value) => {
-              label = value;
-            },
-            'pasta',
+            el(
+              'div',
+              { class: 'row' },
+              el('span', { class: 'value mono left' }, ''),
+              button(
+                'x',
+                'Cancel',
+                () => {
+                  void api
+                    .cancelTimer(timer.label)
+                    .then(paintList)
+                    .catch((error: unknown) => {
+                      flash(status, reason(error), 'error');
+                    });
+                },
+                'danger',
+              ),
+            ),
           ),
         ),
-        control(
-          { label: 'Minutes' },
-          numberField(
-            minutes,
-            (value) => {
-              minutes = value;
-            },
-            { min: 1, max: 1440 },
-          ),
-        ),
-        el(
-          'div',
-          { class: 'row spaced' },
-          button('circle-plus', 'Start', () => {
-            if (!label.trim()) {
-              flash(status, 'A timer needs a name.', 'error');
-              return;
-            }
-            void api
-              .startTimer(label.trim(), Math.round(minutes * 60))
-              .then(() => {
-                renderTimers(body);
-              })
-              .catch((error: unknown) => {
-                flash(status, reason(error), 'error');
-              });
-          }),
-          status,
-        ),
-      );
-    })
-    .catch((error: unknown) => {
-      failed(body, error);
-    });
+      ),
+    );
+    paintRemaining();
+  };
+
+  const load = (): void => {
+    void api
+      .timers()
+      .then(paintList)
+      .catch((error: unknown) => {
+        flash(status, reason(error), 'error');
+      });
+  };
+
+  replace(
+    body,
+    warning,
+    listHost,
+    el('h3', {}, 'New timer'),
+    control(
+      { label: 'For' },
+      textField(
+        '',
+        (value) => {
+          label = value;
+        },
+        'pasta',
+      ),
+    ),
+    control(
+      { label: 'Minutes' },
+      numberField(
+        minutes,
+        (value) => {
+          minutes = value;
+        },
+        { min: 0.1, max: 1440, step: 0.5 },
+      ),
+    ),
+    el(
+      'div',
+      { class: 'row spaced' },
+      button('circle-plus', 'Start', () => {
+        if (!label.trim()) {
+          flash(status, 'A timer needs a name.', 'error');
+          return;
+        }
+        void ensureNotifications();
+        void api
+          .startTimer(label.trim(), Math.max(1, Math.round(minutes * 60)))
+          .then(paintList)
+          .catch((error: unknown) => {
+            flash(status, reason(error), 'error');
+          });
+      }),
+      status,
+    ),
+  );
+
+  replace(listHost, el('p', { class: 'muted' }, 'Loading…'));
+  load();
+  // The only thing left on a timer here is the countdown, which changes once
+  // a second on its own. Adding, cancelling and ringing all arrive as events
+  // and re-render this section from the top, so there is nothing to poll.
+  const ticking = setInterval(paintRemaining, 1000);
+  return () => {
+    clearInterval(ticking);
+  };
 }
 
 const pad = (n: number): string => String(n).padStart(2, '0');

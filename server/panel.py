@@ -89,6 +89,7 @@ async def note_write(name: str, body: NoteIn):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(body.content)
     log.info("note %r saved from the panel (%d bytes)", path.stem, len(body.content))
+    events.publish("notes")
     return _note_view(path, body.content)
 
 
@@ -99,6 +100,7 @@ async def note_delete(name: str):
         raise HTTPException(status_code=404, detail=f"no note called {name!r}")
     path.unlink()
     log.info("note %r deleted from the panel", path.stem)
+    events.publish("notes")
     return {"status": "deleted", "name": path.stem}
 
 
@@ -141,6 +143,7 @@ async def timer_create(body: TimerIn):
         builtin.set_timer(body.duration_seconds, body.label)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
+    events.publish("timers")
     return {"timers": builtin.live_timers(), "now": time.time()}
 
 
@@ -148,6 +151,7 @@ async def timer_create(body: TimerIn):
 async def timer_cancel(label: str):
     if not builtin.drop_timer(label):
         raise HTTPException(status_code=404, detail=f"no timer called {label!r}")
+    events.publish("timers")
     return {"timers": builtin.live_timers(), "now": time.time()}
 
 
@@ -374,6 +378,7 @@ async def settings_write(body: SettingsIn):
     # The persona is a template filled from identity, so a name change only
     # shows up once it is rebuilt.
     memory.reload()
+    events.publish("settings")
 
     return {
         "saved": sorted(body.changes),

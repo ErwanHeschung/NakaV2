@@ -18,7 +18,7 @@ import {
   renderTimers,
   renderTools,
 } from './panels.js';
-import { listen } from './events.js';
+import { listen, type Topic } from './events.js';
 import { chime, ensureNotifications, notify } from './sound.js';
 import { Talk, type TalkState } from './talk.js';
 import { card, icon, iconButton, keyName, panel, type IconName } from './ui.js';
@@ -129,14 +129,17 @@ function ring(label: string): void {
   setTimeout(() => {
     banner.classList.remove('show');
   }, 30000);
-  void api.timers().then((state) => {
-    timerCount = state.timers.length;
-    soonestTimer = '';
-  });
 }
 
 listen({
-  onTimer: ring,
+  onEvent: (event) => {
+    // A timer coming due is the one event that carries something to do
+    // besides re-reading; everything else is just "this changed".
+    if (event.rang !== undefined) ring(event.rang);
+    if (openSection?.topic === event.topic) refreshOpenSection();
+    if (event.topic === 'conversation') void api.memory().then(renderConversation);
+    if (event.topic === 'notes' || event.topic === 'timers') void refreshCounts();
+  },
   onConnection: (live) => {
     // Only worth saying when it is not: a panel that cannot be reached will
     // not ring, and that is the kind of thing to find out before dinner.
@@ -150,21 +153,38 @@ interface Section {
   readonly id: string;
   readonly icon: IconName;
   readonly title: string;
-  readonly render: (body: HTMLElement) => void;
+  /**
+   * What this section displays. When the server says that changed, the
+   * section is re-rendered — which is the whole of how the panel stays
+   * current. A section with no topic shows something that cannot change.
+   */
+  readonly topic?: Topic;
+  /** May return a teardown, for a section that holds a timer. */
+  readonly render: (body: HTMLElement) => void | (() => void);
 }
 
-let openSection: string | null = null;
+let openSection: Section | null = null;
+// Whatever the open section left running. Closing a drawer has to stop it:
+// the panel is re-rendered from scratch each time it opens, so anything still
+// ticking is working on nodes that are no longer on the page.
+let closeSection: (() => void) | null = null;
+
+function teardown(): void {
+  closeSection?.();
+  closeSection = null;
+}
 
 function toggleSection(section: Section, trigger: HTMLElement): void {
   for (const other of rail.querySelectorAll('.icon-btn')) {
     other.classList.remove('active');
   }
-  if (openSection === section.id) {
+  teardown();
+  if (openSection?.id === section.id) {
     openSection = null;
     drawer.classList.remove('open');
     return;
   }
-  openSection = section.id;
+  openSection = section;
   trigger.classList.add('active');
 
   const built = panel(section.icon, section.title);
@@ -175,6 +195,7 @@ function toggleSection(section: Section, trigger: HTMLElement): void {
         class: 'icon-btn',
         title: 'Close',
         onclick: () => {
+          teardown();
           openSection = null;
           drawer.classList.remove('open');
           for (const other of rail.querySelectorAll('.icon-btn')) {
@@ -186,7 +207,7 @@ function toggleSection(section: Section, trigger: HTMLElement): void {
       return close;
     })(),
   );
-  section.render(built.body);
+  closeSection = section.render(built.body) ?? null;
   replace(drawer, built.root);
   drawer.classList.add('open');
 }
@@ -194,12 +215,54 @@ function toggleSection(section: Section, trigger: HTMLElement): void {
 /* --------------------------------------------------------------- sections */
 
 const SECTIONS: Section[] = [
-  { id: 'memory', icon: 'brain', title: 'Memory', render: renderMemory },
-  { id: 'notes', icon: 'notebook-pen', title: 'Notes', render: renderNotes },
-  { id: 'timers', icon: 'clock', title: 'Timers', render: renderTimers },
+  {
+    id: 'memory',
+    icon: 'brain',
+    title: 'Memory',
+    topic: 'memory',
+    render: renderMemory,
+  },
+  {
+    id: 'notes',
+    icon: 'notebook-pen',
+    title: 'Notes',
+    topic: 'notes',
+    render: renderNotes,
+  },
+  {
+    id: 'timers',
+    icon: 'clock',
+    title: 'Timers',
+    topic: 'timers',
+    render: renderTimers,
+  },
+  // The allowlist is read from disk at startup and cannot change under us.
   { id: 'tools', icon: 'wrench', title: 'Tools', render: renderTools },
-  { id: 'settings', icon: 'sliders', title: 'Settings', render: renderSettings },
+  {
+    id: 'settings',
+    icon: 'sliders',
+    title: 'Settings',
+    topic: 'settings',
+    render: renderSettings,
+  },
 ];
+
+/**
+ * Re-render the open section in place.
+ *
+ * Deliberately not a toggle: the drawer stays open, keeps its scroll position
+ * where it can, and only the body is rebuilt.
+ */
+function refreshOpenSection(): void {
+  const section = openSection;
+  if (!section) return;
+  const body = drawer.querySelector<HTMLElement>('.panel-body');
+  if (!body) return;
+  const top = body.scrollTop;
+  teardown();
+  closeSection = section.render(body) ?? null;
+  body.scrollTop = top;
+}
 
 const triggers = new Map<string, HTMLElement>();
 
@@ -230,7 +293,7 @@ function openFromHash(): void {
   const id = globalThis.location.hash.replace('#', '');
   const section = SECTIONS.find((candidate) => candidate.id === id);
   const trigger = section ? triggers.get(section.id) : undefined;
-  if (!section || !trigger || openSection === section.id) return;
+  if (!section || !trigger || openSection?.id === section.id) return;
   toggleSection(section, trigger);
 }
 
@@ -333,25 +396,26 @@ poll(
   },
 );
 
-// The conversation changes only when someone speaks, so it is polled far less
-// often than the status strip.
+async function refreshCounts(): Promise<void> {
+  const [notes, timers] = await Promise.all([api.notes(), api.timers()]);
+  if (timers.timers.length > 0 && timerCount === 0) void ensureNotifications();
+  noteCount = notes.notes.length;
+  timerCount = timers.timers.length;
+  const next = timers.timers[0];
+  soonestTimer = next ? `${next.label} in ${relativeTime(next.remaining_seconds)}` : '';
+}
+
+// A backstop, not the mechanism. Changes arrive over the event stream within
+// milliseconds of happening; this only covers the window where that stream is
+// down and EventSource has not finished reconnecting yet.
 poll(
-  6000,
+  30000,
   async () => {
     renderConversation(await api.memory());
-    // Cheap, and it means a tab left open picks up a settings change instead
-    // of running on whatever it read when it loaded.
+    // Cheap, and it means a tab left open picks up a settings change rather
+    // than running forever on whatever it read when it loaded.
     void talk.refresh().then(paintTalk);
-    const [notes, timers] = await Promise.all([api.notes(), api.timers()]);
-    noteCount = notes.notes.length;
-    if (timers.timers.length > 0 && timerCount === 0) {
-      void ensureNotifications();
-    }
-    timerCount = timers.timers.length;
-    const next = timers.timers[0];
-    soonestTimer = next
-      ? `${next.label} in ${relativeTime(next.remaining_seconds)}`
-      : '';
+    await refreshCounts();
   },
   () => {
     replace(convo.body, el('div', { class: 'empty' }, 'Cannot reach the server.'));

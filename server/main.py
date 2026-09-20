@@ -40,12 +40,23 @@ def turn_note(woke: float) -> str:
 # Waking is slow enough to need explaining — the models have to come back off
 # disk. Naka says so herself rather than reciting a canned line, so it stays in
 # character and does not become the same sentence every time.
+#
+# The wording matters more than it looks. This said "Open with one short remark
+# about having just woken... then answer normally", and a model asked to open
+# with a remark does exactly that: it returns spoken words, the agent loop sees
+# no tool call, and whatever was actually asked for is dropped. With idle
+# unloading at a minute, almost every real request arrived just after a wake,
+# so "set a timer" and "write a note" reliably produced a warm sentence and no
+# timer and no note. Acting comes first here, and the remark is offered for
+# whenever she next speaks — which is either this turn or the one after the
+# tool result comes back.
 WOKE_NOTE = (
-    "You were unloaded from the GPU a while ago to free it up, and have just "
-    "been loaded back — which took about {seconds:.0f} seconds, and is why "
-    "there was a pause before you answered. Open with one short remark about "
-    "having just woken and why it took a moment, in your own voice, then "
-    "answer normally. Do not apologise at length or mention this again."
+    "You were unloaded from the GPU a while ago to free it up and have just "
+    "been loaded back, which took about {seconds:.0f} seconds — that is why "
+    "there was a pause before this reply. Do what was asked first, using a "
+    "tool if that is what it takes. When you next speak, you may work in one "
+    "short remark about having just woken. Do not apologise at length and do "
+    "not mention it twice."
 )
 
 logging.basicConfig(
@@ -68,8 +79,7 @@ async def timer_watcher():
         try:
             for timer in builtin.take_due_timers():
                 log.info("timer %r came due", timer["label"])
-                await events.hub.send({"type": "timer", "label": timer["label"],
-                                       "at": time.time()})
+                events.publish("timers", rang=timer["label"], at=time.time())
         except asyncio.CancelledError:
             raise
         except Exception:
@@ -79,6 +89,9 @@ async def timer_watcher():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Publishing is safe from any thread once this is set, which matters
+    # because tools run in a worker.
+    events.bind(asyncio.get_running_loop())
     models.load()
     models.warmup()
     watcher = asyncio.create_task(ops.idle_watcher())
@@ -204,11 +217,20 @@ async def remember(user_text: str, reply: str) -> None:
     user is not made to wait for it inside the latency budget.
     """
     memory.add_turn(user_text, reply)
+    # So the conversation appears as it happens rather than on the next poll.
+    events.publish("conversation")
     # Both run off the response path: each is another generation, and neither
     # is worth making the user wait for.
-    asyncio.create_task(memory.reconcile(user_text, reply))
+    asyncio.create_task(_reconcile_then_announce(user_text, reply))
     if memory.needs_summary():
         asyncio.create_task(memory.summarise())
+
+
+async def _reconcile_then_announce(user_text: str, reply: str) -> None:
+    """Facts change after the reply is already being spoken, so the panel is
+    told when it happens rather than being left to notice."""
+    await memory.reconcile(user_text, reply)
+    events.publish("memory")
 
 
 @app.get("/memory")
@@ -231,6 +253,8 @@ async def memory_reload():
 @app.post("/memory/forget")
 async def memory_forget():
     memory.forget()
+    events.publish("memory")
+    events.publish("conversation")
     return {"status": "cleared"}
 
 

@@ -15,7 +15,19 @@ from pathlib import Path
 
 import yaml
 
+from .. import events
+
 log = logging.getLogger("naka.tools")
+
+# Which tools change something the panel is showing. Announced from here
+# rather than from inside each handler, so a new tool that forgets to say so
+# is the exception rather than the rule.
+TOPICS = {
+    "write_note": "notes",
+    "delete_note": "notes",
+    "set_timer": "timers",
+    "cancel_timer": "timers",
+}
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 CONFIG = ROOT / "config" / "tools.yaml"
@@ -129,4 +141,7 @@ def call(name: str, arguments: dict) -> str:
         return f"Error running {name}: {e}"
 
     audit(name, arguments, "ok", result)
+    topic = TOPICS.get(name)
+    if topic:
+        events.publish(topic)
     return result
