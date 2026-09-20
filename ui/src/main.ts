@@ -208,7 +208,9 @@ const SECTIONS: Section[] = [
   },
 ];
 
-for (const section of SECTIONS) {
+const triggers = new Map<string, HTMLElement>();
+
+function makeTrigger(section: Section): HTMLElement {
   const trigger = el('button', {
     class: 'icon-btn',
     title: section.title,
@@ -217,10 +219,30 @@ for (const section of SECTIONS) {
   trigger.append(icon(section.icon));
   trigger.addEventListener('click', () => {
     toggleSection(section, trigger);
+    globalThis.location.hash = openSection === null ? '' : `#${section.id}`;
   });
+  return trigger;
+}
+
+for (const section of SECTIONS) {
+  const trigger = makeTrigger(section);
+  triggers.set(section.id, trigger);
   rail.append(trigger);
+  // Settings sits apart from the content sections above it.
   if (section.id === 'tools') rail.append(el('div', { class: 'sep' }));
 }
+
+/** Open whatever #section the URL names, so a panel can be linked to. */
+function openFromHash(): void {
+  const id = globalThis.location.hash.replace('#', '');
+  const section = SECTIONS.find((candidate) => candidate.id === id);
+  const trigger = section ? triggers.get(section.id) : undefined;
+  if (!section || !trigger || openSection === section.id) return;
+  toggleSection(section, trigger);
+}
+
+globalThis.addEventListener('hashchange', openFromHash);
+openFromHash();
 
 /* ------------------------------------------------------------ live status */
 

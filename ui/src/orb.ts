@@ -18,13 +18,15 @@ interface Palette {
 const PALETTES: Record<OrbState, Palette> = {
   // Grey when nothing is loaded: the sketch is explicit that colour means
   // active, so a sleeping assistant must not look like a working one.
-  sleeping: { inner: '#3a4050', outer: '#232838', glow: 0.1 },
-  idle: { inner: '#5b6478', outer: '#2c3346', glow: 0.22 },
-  thinking: { inner: '#7c5cff', outer: '#3a2d7a', glow: 0.7 },
-  speaking: { inner: '#4d9fff', outer: '#1d4a80', glow: 0.85 },
+  // Still grey when asleep, but light enough to read as a lit object rather
+  // than a hole. Measured on the real background, not guessed.
+  sleeping: { inner: '#6f7891', outer: '#262c3c', glow: 0.5 },
+  idle: { inner: '#8f9ab5', outer: '#2f3750', glow: 0.75 },
+  thinking: { inner: '#9d85ff', outer: '#3a2d7a', glow: 1.25 },
+  speaking: { inner: '#63aeff', outer: '#1d4a80', glow: 1.4 },
 };
 
-const RINGS = 3;
+const RINGS = 4;
 
 export class Orb {
   private readonly ctx: CanvasRenderingContext2D;
@@ -92,8 +94,9 @@ export class Orb {
     ctx.clearRect(0, 0, w, h);
 
     // Outer glow.
-    const glow = ctx.createRadialGradient(cx, cy, base * 0.5, cx, cy, base * 2.1);
-    glow.addColorStop(0, hexToRgba(palette.inner, 0.28 * palette.glow));
+    const glow = ctx.createRadialGradient(cx, cy, base * 0.4, cx, cy, base * 2.2);
+    glow.addColorStop(0, hexToRgba(palette.inner, 0.3 * palette.glow));
+    glow.addColorStop(0.45, hexToRgba(palette.inner, 0.1 * palette.glow));
     glow.addColorStop(1, hexToRgba(palette.inner, 0));
     ctx.fillStyle = glow;
     ctx.fillRect(0, 0, w, h);
@@ -108,9 +111,9 @@ export class Orb {
       ctx.arc(cx, cy, radius, 0, Math.PI * 2);
       ctx.strokeStyle = hexToRgba(
         palette.inner,
-        (0.34 - i * 0.09) * (0.4 + palette.glow),
+        Math.max(0.08, (0.5 - i * 0.1) * palette.glow),
       );
-      ctx.lineWidth = i === 0 ? 1.6 : 1;
+      ctx.lineWidth = i === 0 ? 2 : 1.25;
       ctx.stroke();
     }
 
@@ -123,8 +126,10 @@ export class Orb {
       cy,
       base,
     );
-    body.addColorStop(0, hexToRgba(palette.inner, 0.9));
-    body.addColorStop(1, hexToRgba(palette.outer, 0.92));
+    body.addColorStop(0, hexToRgba(palette.inner, 0.95));
+    body.addColorStop(0.65, hexToRgba(palette.outer, 0.95));
+    // Darker at the very edge so the rim light reads against it.
+    body.addColorStop(1, hexToRgba(palette.outer, 0.8));
     ctx.beginPath();
     ctx.arc(cx, cy, base * (1 + this.smoothed * 0.05), 0, Math.PI * 2);
     ctx.fillStyle = body;
@@ -133,8 +138,8 @@ export class Orb {
     // Rim light, brightest where the gradient's highlight sits.
     ctx.beginPath();
     ctx.arc(cx, cy, base * (1 + this.smoothed * 0.05), 0, Math.PI * 2);
-    ctx.strokeStyle = hexToRgba(palette.inner, 0.5);
-    ctx.lineWidth = 1;
+    ctx.strokeStyle = hexToRgba(palette.inner, 0.75);
+    ctx.lineWidth = 1.5;
     ctx.stroke();
   }
 }

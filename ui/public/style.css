@@ -66,9 +66,9 @@ body {
   inset: 0;
   z-index: -1;
   background:
-    radial-gradient(60vw 60vh at 22% 18%, rgba(124, 92, 255, 0.16), transparent 60%),
-    radial-gradient(55vw 55vh at 82% 72%, rgba(77, 159, 255, 0.13), transparent 62%),
-    radial-gradient(70vw 50vh at 50% 108%, rgba(63, 207, 142, 0.08), transparent 60%),
+    radial-gradient(70vw 70vh at 18% 12%, rgba(124, 92, 255, 0.38), transparent 62%),
+    radial-gradient(62vw 62vh at 86% 78%, rgba(77, 159, 255, 0.3), transparent 64%),
+    radial-gradient(80vw 55vh at 52% 112%, rgba(63, 207, 142, 0.16), transparent 62%),
     var(--void);
   filter: saturate(1.05);
   animation: drift 32s ease-in-out infinite alternate;
@@ -165,6 +165,7 @@ body {
   padding: 14px;
   overflow-y: auto;
   flex: 1;
+  min-height: 0;
 }
 
 .panel-body::-webkit-scrollbar {
@@ -209,7 +210,9 @@ body {
   color: var(--ink-faint);
   font-size: 13px;
   text-align: center;
-  padding: 28px 12px;
+  height: 100%;
+  display: grid;
+  place-items: center;
 }
 
 /* -------------------------------------------------------------- the stage */
@@ -229,8 +232,8 @@ body {
 }
 
 canvas.orb {
-  width: min(42vh, 380px);
-  height: min(42vh, 380px);
+  width: min(54vh, 460px);
+  height: min(54vh, 460px);
   display: block;
 }
 
@@ -305,6 +308,7 @@ canvas.orb {
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
   gap: 6px;
   padding: 4px;
   background: rgba(18, 21, 28, 0.6);
@@ -444,7 +448,12 @@ button.btn.danger:hover:not(:disabled) {
 
 .drawer .panel {
   height: 100%;
-  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6);
+  /* Nearly opaque: this floats over the orb and the cards, and the in-layout
+     translucency that works against the background makes an overlay unreadable
+     — worse still where backdrop-filter is unsupported. */
+  background: linear-gradient(180deg, rgba(20, 23, 31, 0.985), rgba(15, 18, 24, 0.985));
+  border-color: #2b3142;
 }
 
 .drawer .panel-head {
