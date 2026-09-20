@@ -14,6 +14,7 @@ import logging
 import re
 import time
 from collections import deque
+from itertools import groupby
 from typing import NamedTuple
 from pathlib import Path
 
@@ -107,6 +108,23 @@ class Turn(NamedTuple):
     actions: tuple[dict, ...] = ()
 
 
+# A replayed tool result is history, not the answer: it only has to be
+# recognisable. read_note returns up to 2000 characters and search_notes is
+# unbounded, so three of those across the recent window would eat most of an
+# 8192-token context and push the persona off the front of the prompt.
+REPLAY_CHARS = 400
+
+
+def _clip(result: str) -> str:
+    return result if len(result) <= REPLAY_CHARS else \
+        result[:REPLAY_CHARS] + "… (truncated)"
+
+
+def numbered(facts) -> str:
+    """The fact list, numbered so one can be dropped precisely."""
+    return "\n".join(f"{i}. {fact}" for i, fact in enumerate(facts, 1))
+
+
 class Memory:
     def __init__(self) -> None:
         self.persona = self._load_persona()
@@ -167,8 +185,7 @@ class Memory:
                 "## What you know about them\n\n"
                 "These are numbered so you can drop one precisely; the numbers "
                 "are for you, never say them aloud.\n\n"
-                + "\n".join(f"{i}. {fact}"
-                             for i, fact in enumerate(self.facts, 1))
+                + numbered(self.facts)
             )
         if self.summary:
             parts.append("## Earlier in this conversation\n\n" + self.summary)
@@ -182,7 +199,13 @@ class Memory:
             # result, then what was said about it. Collapsing that to the
             # spoken reply alone teaches the model that this kind of request
             # is answered with words.
-            if turn.actions:
+            # One block per step, in order. Flattening a chain into a
+            # single assistant message asking for everything at once shows
+            # the model issuing a call whose arguments depended on a result
+            # it had not received yet — which is the opposite of the
+            # sequential tool use this replay exists to teach.
+            for _, group in groupby(turn.actions, key=lambda a: a.get("step", 0)):
+                step = list(group)
                 messages.append({
                     "role": "assistant",
                     "content": None,
@@ -190,13 +213,13 @@ class Memory:
                         {"id": action["id"], "type": "function",
                          "function": {"name": action["name"],
                                       "arguments": action["arguments"]}}
-                        for action in turn.actions
+                        for action in step
                     ],
                 })
-                for action in turn.actions:
+                for action in step:
                     messages.append({"role": "tool",
                                      "tool_call_id": action["id"],
-                                     "content": action["result"]})
+                                     "content": _clip(action["result"])})
             messages.append({"role": "assistant", "content": turn.reply})
         # A note about this turn only — never stored, so it cannot leak into
         # the summary or colour later answers.
@@ -204,6 +227,19 @@ class Memory:
             messages.append({"role": "system", "content": note})
         messages.append({"role": "user", "content": user_text})
         return messages
+
+    def _transcript(self, turns) -> str:
+        """Turns as plain dialogue, for the prompts that summarise and judge.
+
+        One renderer rather than three. The three copies that preceded it are
+        why the deque[tuple] to deque[Turn] change compiled and then raised
+        inside a detached task on the first summary, where nothing was
+        listening.
+        """
+        from . import settings
+        who, me = settings.IDENTITY["user"], settings.IDENTITY["assistant"]
+        return "\n".join(f"{who}: {turn.user}\n{me}: {turn.reply}"
+                          for turn in turns)
 
     def add_turn(self, user_text: str, reply: str,
                  actions: list[dict] | None = None) -> None:
@@ -222,10 +258,7 @@ class Memory:
         """
         from . import llm
 
-        from . import settings
-        who, me = settings.IDENTITY["user"], settings.IDENTITY["assistant"]
-        transcript = "\n".join(f"{who}: {spoken}\n{me}: {answered}"
-                               for spoken, answered in self.pending)
+        transcript = self._transcript(self.pending)
         if self.summary:
             transcript = f"Summary so far: {self.summary}\n\n{transcript}"
 
@@ -252,13 +285,15 @@ class Memory:
         if not WORTH_CHECKING.search(user_text):
             return []
 
-        who = settings.IDENTITY["user"]
-        me = settings.IDENTITY["assistant"]
-        known = "\n".join(f"{i}. {f}" for i, f in enumerate(self.facts, 1)) \
-            or "(none yet)"
-        history = "\n".join(f"{who}: {turn.user}\n{me}: {turn.reply}"
-                            for turn in self.recent)
-        exchange = f"{who}: {user_text}\n{me}: {reply}"
+        known = numbered(self.facts) or "(none yet)"
+        # add_turn has already appended this exchange, so recent ends with it.
+        # Rendering all of recent and then appending the exchange again showed
+        # the model the final turn twice, while the prompt instructs it to
+        # judge the final exchange and treat the rest as context.
+        earlier = [turn for turn in self.recent
+                   if (turn.user, turn.reply) != (user_text, reply)]
+        history = self._transcript(earlier)
+        exchange = self._transcript([Turn(user_text, reply)])
 
         raw = await llm.complete([
             {"role": "system", "content": RECONCILE_PROMPT.format(known=known)},

@@ -52,8 +52,14 @@ async def _compose(verb: str) -> bool:
     The result used to be discarded, which meant a failed stop was reported as
     a successful unload and the container quietly kept its 7.4 GB.
     """
+    # "up -d" rather than "start", because start only resumes a container
+    # that already exists: after a compose down, a WSL restart or a pruned
+    # image, it fails with "service llm has no container to start" and every
+    # reply for the rest of the session comes back empty. up -d creates it
+    # when missing and is a no-op when it is already running.
+    argv = ["up", "-d", "llm"] if verb == "start" else [verb, "llm"]
     process = await asyncio.create_subprocess_exec(
-        *_DOCKER, verb, "llm",
+        *_DOCKER, *argv,
         stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
     )
     out, _ = await process.communicate()
@@ -252,8 +258,11 @@ async def _load_locked() -> dict:
     }
 
 
-def status() -> dict:
-    used, total = _vram()
+async def status() -> dict:
+    # nvidia-smi is a subprocess that regularly takes 100ms+ while the GPU is
+    # busy, and the panel asks for this every two seconds. On the loop that is
+    # a stutter in whatever reply is streaming at the time.
+    used, total = await asyncio.to_thread(_vram)
     return {
         "models_loaded": models.stt is not None and models.tts is not None,
         "vram_used_mb": used,

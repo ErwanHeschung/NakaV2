@@ -62,7 +62,8 @@ def is_affirmative(text: str) -> bool:
     return cleaned in AFFIRMATIVE or cleaned.startswith(("yes", "yeah", "oui"))
 
 
-async def resolve_pending(user_text: str) -> str | None:
+async def resolve_pending(user_text: str,
+                          actions: list[dict] | None = None) -> str | None:
     """Apply the user's answer to a waiting destructive call.
 
     Returns what to say, or None if nothing was pending. Anything that is not
@@ -80,7 +81,16 @@ async def resolve_pending(user_text: str) -> str | None:
         audit(name, arguments, "declined", "user did not confirm")
         return "Left it alone."
 
-    return call(name, arguments)
+    result = await asyncio.to_thread(call, name, arguments)
+    if actions is not None:
+        # Recorded like any other call. Without this the turn reads as a
+        # deletion request answered with words and no call — exactly the
+        # transcript that stops the next tool from being used, and it would
+        # have applied to precisely the destructive ones.
+        actions.append({"id": f"{name}-confirmed", "name": name,
+                        "arguments": json.dumps(arguments),
+                        "result": result, "step": 0})
+    return result
 
 
 async def run(messages: list[dict],
@@ -132,13 +142,27 @@ async def run(messages: list[dict],
                 yield await _confirmation_question(name, arguments, working)
                 return
 
-            result = call(name, arguments)
+            # Off the loop: handlers shell out to nvidia-smi, read every
+            # file in the notes directory and append to the audit log, and
+            # blocking here stalls the audio already streaming to the client.
+            result = await asyncio.to_thread(call, name, arguments)
             if actions is not None:
                 actions.append({
-                    "id": request.get("id", name),
+                    # The model's own id when it gave one, but never a bare
+                    # tool name: two calls to the same tool in one turn would
+                    # share it, and a duplicate tool_call_id either gets
+                    # rejected or pairs the wrong result with the wrong call.
+                    "id": request.get("id") or f"{name}-{step}-{len(actions)}",
                     "name": name,
-                    "arguments": function.get("arguments") or "{}",
+                    # What ran, not what was asked for. Malformed JSON falls
+                    # back to {} above, and replaying the malformed original
+                    # would show the model its bad output being accepted.
+                    "arguments": json.dumps(arguments),
                     "result": result,
+                    # Replayed one block per step, because a chain where the
+                    # second call used the first one's result cannot honestly
+                    # be shown as both being asked for at once.
+                    "step": step,
                 })
             working.append({
                 "role": "tool",

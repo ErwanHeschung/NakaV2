@@ -102,6 +102,7 @@ async def lifespan(app: FastAPI):
     watcher.cancel()
     pruning.cancel()
     ringing.cancel()
+    await llm.aclose()
     models.unload()
 
 
@@ -131,7 +132,7 @@ def reply_stream(user_text: str, agentic: bool, messages=None, actions=None):
     utterance is the user's answer to it, not a new request.
     """
     async def generate():
-        settled = await agent.resolve_pending(user_text)
+        settled = await agent.resolve_pending(user_text, actions)
         if settled is not None:
             for sentence in llm.split_sentences(settled):
                 yield sentence
@@ -199,17 +200,47 @@ async def chat_endpoint(body: TextIn):
         first = None
         spoken = []
         actions: list[dict] = []
-        async for sentence in reply_stream(body.text, body.agentic, messages,
-                                           actions):
-            now = (time.perf_counter() - start) * 1000
-            if first is None:
-                first = now
-                log.info("llm first sentence %.0fms", now)
-            spoken.append(sentence)
-            yield json.dumps({"sentence": sentence, "ms": round(now)}) + "\n"
-        await remember(body.text, " ".join(spoken), actions)
+        # The whole reply, not just the load, the way /converse does it.
+        # Marked only around ensure_loaded, a reply was in flight with nothing
+        # saying so: an agentic turn may run for the full 30s tool timeout,
+        # and the idle watcher was free to pull the models out from under it.
+        async with ops.Busy():
+            async for sentence in reply_stream(body.text, body.agentic,
+                                               messages, actions):
+                now = (time.perf_counter() - start) * 1000
+                if first is None:
+                    first = now
+                    log.info("llm first sentence %.0fms", now)
+                spoken.append(sentence)
+                yield json.dumps({"sentence": sentence, "ms": round(now)}) + "\n"
+            await remember(body.text, " ".join(spoken), actions)
 
     return StreamingResponse(generate(), media_type="application/x-ndjson")
+
+
+# Background tasks, held so they are not collected mid-flight.
+#
+# asyncio keeps only a weak reference to a bare create_task, so a task
+# suspended on an LLM call can be garbage-collected and cancelled before it
+# finishes — a remembered fact quietly lost. Holding them also gives
+# somewhere to attach the error handler that was missing when summarise()
+# started raising on every turn and nothing said a word.
+_background: set[asyncio.Task] = set()
+
+
+def spawn(coro) -> None:
+    task = asyncio.create_task(coro)
+    _background.add(task)
+    task.add_done_callback(_background.discard)
+    task.add_done_callback(_report)
+
+
+def _report(task: asyncio.Task) -> None:
+    if task.cancelled():
+        return
+    error = task.exception()
+    if error is not None:
+        log.exception("background task failed", exc_info=error)
 
 
 async def remember(user_text: str, reply: str,
@@ -224,9 +255,9 @@ async def remember(user_text: str, reply: str,
     events.publish("conversation")
     # Both run off the response path: each is another generation, and neither
     # is worth making the user wait for.
-    asyncio.create_task(_reconcile_then_announce(user_text, reply))
+    spawn(_reconcile_then_announce(user_text, reply))
     if memory.needs_summary():
-        asyncio.create_task(memory.summarise())
+        spawn(memory.summarise())
 
 
 async def _reconcile_then_announce(user_text: str, reply: str) -> None:
@@ -277,7 +308,7 @@ async def tools_state():
 
 @app.get("/ops/status")
 async def ops_status():
-    return ops.status()
+    return await ops.status()
 
 
 @app.post("/ops/wake")
@@ -290,7 +321,7 @@ async def ops_wake():
     ops.touch()
     if models.stt is not None and models.tts is not None:
         return {"status": "already awake"}
-    asyncio.create_task(ops.ensure_loaded())
+    spawn(ops.ensure_loaded())
     return {"status": "waking"}
 
 
@@ -395,6 +426,7 @@ async def converse(file: UploadFile,
         total = (time.perf_counter() - start) * 1000
         turnlog.record(
             heard=heard, messages=prompt, spoken=spoken, agentic=agentic,
+            tools=actions,
             timings={"upload": t_upload, "stt": t_stt - t_upload,
                      "first_sound": first_sound or 0, "total": total},
         )
