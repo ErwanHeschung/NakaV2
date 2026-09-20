@@ -31,15 +31,23 @@ FIRST_PERSON = re.compile(r"\b(i|i'm|im|my|mine|me|i've|i'll|j'|je|mon|ma|mes)\b
                           re.IGNORECASE)
 
 FACT_PROMPT = (
-    "You extract durable facts about the user from one exchange. Reply with a "
-    "single short sentence in the third person if — and only if — the user "
-    "stated something about themselves that will still matter in six months: "
-    "health, allergies, people close to them, strong preferences, "
-    "constraints, work lasting months, how they want to be treated. Reply "
-    "with exactly NONE for anything passing: what they did today, what they "
-    "feel now, questions, opinions about the immediate topic, or anything "
-    "already obvious. Most exchanges are NONE. Reply with the fact or NONE, "
-    "nothing else."
+    "You decide whether one exchange contains a new durable fact about the "
+    "user that is not already known.\n\n"
+    "Already known:\n{known}\n\n"
+    "Reply with a single short sentence in the third person if — and only if "
+    "— the user stated something new about themselves that will still matter "
+    "in six months: health, allergies, people close to them, strong "
+    "preferences, constraints, work lasting months, how they want to be "
+    "treated.\n\n"
+    "Reply with exactly NONE when:\n"
+    "- it is already covered by something known above, even if worded "
+    "differently or combined with other known facts;\n"
+    "- the user is correcting, retracting, or asking to forget something. "
+    "Removal is handled elsewhere and is not your job — never reply with a "
+    "negated version of a known fact;\n"
+    "- it is passing: what they did today, how they feel now, questions, or "
+    "opinions about the immediate topic.\n\n"
+    "Most exchanges are NONE. Reply with the fact or NONE, nothing else."
 )
 
 SUMMARY_PROMPT = (
@@ -177,8 +185,9 @@ class Memory:
         if not FIRST_PERSON.search(user_text):
             return None
 
+        known = "\n".join(f"- {f}" for f in self.facts) or "- nothing yet"
         verdict = (await llm.complete([
-            {"role": "system", "content": FACT_PROMPT},
+            {"role": "system", "content": FACT_PROMPT.format(known=known)},
             {"role": "user", "content":
                 f"{settings.IDENTITY['user']}: {user_text}\n"
                 f"{settings.IDENTITY['assistant']}: {reply}"},
