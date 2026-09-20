@@ -13,6 +13,7 @@ import {
   Cpu,
   FileText,
   Ellipsis,
+  Keyboard,
   LoaderCircle,
   Mic,
   NotebookPen,
@@ -53,6 +54,7 @@ const ICONS = {
   cpu: Cpu,
   'file-text': FileText,
   ellipsis: Ellipsis,
+  keyboard: Keyboard,
   loader: LoaderCircle,
   mic: Mic,
   'notebook-pen': NotebookPen,
@@ -244,5 +246,78 @@ export function textArea(
   node.addEventListener('input', () => {
     onChange(node.value);
   });
+  return node;
+}
+
+/**
+ * A KeyboardEvent.code as a person would say it.
+ *
+ * The codes are stored rather than the labels because the code follows the
+ * physical key — the one being held — while the character it types moves with
+ * the keyboard layout.
+ */
+export function keyName(code: string): string {
+  const named: Record<string, string> = {
+    ControlLeft: 'Left Ctrl',
+    ControlRight: 'Right Ctrl',
+    AltLeft: 'Left Alt',
+    AltRight: 'Right Alt',
+    ShiftLeft: 'Left Shift',
+    ShiftRight: 'Right Shift',
+    MetaLeft: 'Left Meta',
+    MetaRight: 'Right Meta',
+    Space: 'Space',
+    CapsLock: 'Caps Lock',
+  };
+  if (code in named) return named[code] ?? code;
+  if (code.startsWith('Key')) return code.slice(3);
+  if (code.startsWith('Digit')) return code.slice(5);
+  if (code.startsWith('Arrow')) return `${code.slice(5)} arrow`;
+  return code;
+}
+
+/**
+ * Captures a keypress rather than asking for its name.
+ *
+ * Nobody knows offhand that the right control key is called "ControlRight",
+ * and a text box here would mostly collect values the client cannot bind.
+ */
+export function keyField(
+  value: string,
+  onChange: (value: string) => void,
+): HTMLElement {
+  let current = value;
+  const node = el('button', { class: 'btn key-field', type: 'button' });
+
+  const paint = (listening: boolean): void => {
+    node.classList.toggle('listening', listening);
+    node.textContent = '';
+    node.append(
+      icon(listening ? 'ellipsis' : 'keyboard', 'sm'),
+      listening ? 'press any key…' : keyName(current),
+    );
+  };
+
+  const capture = (event: KeyboardEvent): void => {
+    event.preventDefault();
+    event.stopPropagation();
+    globalThis.removeEventListener('keydown', capture, true);
+    // Escape leaves it as it was, which is the only way out otherwise: every
+    // other key, including Tab, is a legitimate choice here.
+    if (event.code !== 'Escape') {
+      current = event.code;
+      onChange(event.code);
+    }
+    paint(false);
+  };
+
+  node.addEventListener('click', () => {
+    paint(true);
+    // Capture phase: this has to win against the push-to-talk binding, which
+    // is listening for one of the very keys being offered.
+    globalThis.addEventListener('keydown', capture, true);
+  });
+
+  paint(false);
   return node;
 }

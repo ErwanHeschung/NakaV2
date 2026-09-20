@@ -23,6 +23,7 @@ import {
   choiceField,
   control,
   icon,
+  keyField,
   numberField,
   textArea,
   textField,
@@ -419,6 +420,16 @@ function countdown(seconds: number): string {
 
 /* --------------------------------------------------------------- settings */
 
+// Saving can change the talk key, and the running listener has to hear about
+// it. A callback rather than an import, because main.ts imports this module.
+let afterSave: () => void = () => {
+  /* nothing until main.ts registers one */
+};
+
+export function onSettingsSaved(handler: () => void): void {
+  afterSave = handler;
+}
+
 export function renderSettings(body: HTMLElement): void {
   loading(body);
   void api
@@ -458,6 +469,7 @@ function paintSettings(body: HTMLElement, state: SettingsState): void {
     saveButton.disabled = true;
     try {
       const result = await api.saveSettings(Object.fromEntries(pending));
+      afterSave();
       paintSettings(body, { ...state, fields: result.fields });
       // Re-find the status element: paintSettings replaced the whole body.
       const note = body.querySelector<HTMLElement>('.settings-status');
@@ -525,6 +537,9 @@ function renderField(
   // A chain rather than a switch: one lint rule wants every union member
   // spelled out as a case, another wants a return after the switch, and the
   // two cannot both be satisfied for an exhaustive one.
+  if (field.kind === 'key') {
+    return control(spec, keyField(String(field.value ?? ''), onChange));
+  }
   if (field.kind === 'bool')
     return control(spec, toggle(field.value === true, onChange));
   if (field.kind === 'choice') {

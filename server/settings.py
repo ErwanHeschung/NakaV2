@@ -15,12 +15,14 @@ SETTINGS_FILE = CONFIG / "settings.toml"
 VOICE_FILE = CONFIG / "voice.toml"
 
 _DEFAULTS = {
+    "client": {"push_to_talk_key": "ControlRight", "listen_when_open": True},
     "identity": {"assistant": "Naka", "user": "User", "user_pronoun": "they",
                  "user_possessive": "their"},
     "logs": {"retention_days": 0},
     "ops": {"idle_unload_minutes": 0, "idle_unload_llm": True},
 }
 
+CLIENT: dict = {}
 IDENTITY: dict = {}
 SERVER: dict = {}
 LLM: dict = {}
@@ -40,7 +42,7 @@ def _read(path: Path) -> dict:
 def reload() -> None:
     raw = _read(SETTINGS_FILE)
     sections = {
-        "identity": IDENTITY, "server": SERVER, "llm": LLM, "stt": STT,
+        "client": CLIENT, "identity": IDENTITY, "server": SERVER, "llm": LLM, "stt": STT,
         "tts": TTS, "audio": AUDIO, "logs": LOGS, "ops": OPS,
     }
     for name, target in sections.items():

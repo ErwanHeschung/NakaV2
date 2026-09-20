@@ -3,8 +3,11 @@
 Mic capture in WSL is unreliable, so the client lives on the Windows side and
 talks to the server over localhost, which WSL2 forwards automatically.
 
-Hold the hotkey (right ctrl by default) to speak, release to send. The reply
-is decoded and played as it arrives rather than after it completes.
+Hold the hotkey to speak, release to send. The reply is decoded and played as
+it arrives rather than after it completes.
+
+Which key that is comes from the server, so the panel and this client cannot
+disagree about it. --key still overrides, for trying one out.
 
     pip install -r client/requirements.txt
     python client/ptt.py --url http://127.0.0.1:8000
@@ -12,6 +15,7 @@ is decoded and played as it arrives rather than after it completes.
 
 import argparse
 import io
+import re
 import queue
 import sys
 import threading
@@ -64,6 +68,53 @@ class ResponseReader(io.RawIOBase):
         target[:take] = self._buffer[:take]
         self._buffer = self._buffer[take:]
         return take
+
+
+def resolve_key(code):
+    """A browser KeyboardEvent.code to something pynput will compare equal to.
+
+    The config is stored the browser's way because that spelling is specified
+    and pynput's is not, so the mapping lives on this side. Anything not named
+    here is assumed to be a character key, which covers letters and digits.
+    """
+    named = {
+        "ControlLeft": "ctrl_l", "ControlRight": "ctrl_r",
+        "AltLeft": "alt_l", "AltRight": "alt_gr",
+        "ShiftLeft": "shift_l", "ShiftRight": "shift_r",
+        "MetaLeft": "cmd_l", "MetaRight": "cmd_r",
+        "Space": "space", "Enter": "enter", "Tab": "tab",
+        "CapsLock": "caps_lock", "Escape": "esc", "Backspace": "backspace",
+        "Insert": "insert", "Home": "home", "End": "end",
+        "PageUp": "page_up", "PageDown": "page_down",
+        "ArrowUp": "up", "ArrowDown": "down",
+        "ArrowLeft": "left", "ArrowRight": "right",
+    }
+    if code in named:
+        return getattr(keyboard.Key, named[code])
+    if re.fullmatch(r"F\d{1,2}", code):
+        return getattr(keyboard.Key, code.lower())
+    if code.startswith("Key") and len(code) == 4:
+        return keyboard.KeyCode.from_char(code[3].lower())
+    if code.startswith("Digit") and len(code) == 6:
+        return keyboard.KeyCode.from_char(code[5])
+    # A pynput name straight from --key, for anything this does not cover.
+    if hasattr(keyboard.Key, code):
+        return getattr(keyboard.Key, code)
+    raise ValueError(f"do not know how to listen for {code!r}")
+
+
+def fetch_key(client, url, override):
+    if override:
+        return override
+    try:
+        response = client.get(f"{url.rstrip('/')}/client", timeout=5.0)
+        response.raise_for_status()
+        return response.json()["push_to_talk_key"]
+    except (httpx.HTTPError, KeyError, ValueError):
+        # Not fatal: a client that cannot ask still has to be usable.
+        print("could not read the key from the server, using ControlRight",
+              file=sys.stderr)
+        return "ControlRight"
 
 
 def record(held):
@@ -154,11 +205,11 @@ def main():
     # Worth it to be able to set a timer; --no-tools buys the speed back.
     ap.add_argument("--no-tools", action="store_true",
                     help="disable tools for faster, conversation-only replies")
-    ap.add_argument("--key", default="ctrl_r",
-                    help="pynput key name to hold, e.g. ctrl_r, alt_r, f13")
+    # Unset by default: the server holds the answer, so the two clients
+    # cannot end up listening for different keys.
+    ap.add_argument("--key", default=None,
+                    help="override the server's key, e.g. ControlRight, F13")
     args = ap.parse_args()
-
-    hotkey = getattr(keyboard.Key, args.key)
 
     # One client for the session, and a keepalive long enough to survive a
     # pause in the conversation: reconnecting across the WSL2 boundary is the
@@ -171,6 +222,12 @@ def main():
         client.get(f"{args.url.rstrip('/')}/health", timeout=5.0).raise_for_status()
     except httpx.HTTPError as e:
         sys.exit(f"cannot reach Naka at {args.url}: {e}")
+
+    key_code = fetch_key(client, args.url, args.key)
+    try:
+        hotkey = resolve_key(key_code)
+    except ValueError as e:
+        sys.exit(str(e))
 
     # One listener for the whole session. Starting a second one to watch for
     # the release would race a quick tap: the release could land between the
@@ -187,7 +244,7 @@ def main():
                           dtype="float32", latency="low")
     out.start()
 
-    print(f"hold {args.key} to talk, ctrl-c to quit")
+    print(f"hold {key_code} to talk, ctrl-c to quit")
     try:
         while True:
             held.wait()

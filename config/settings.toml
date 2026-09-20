@@ -8,6 +8,19 @@ user = "Erwan"
 user_pronoun = "he"
 user_possessive = "his"
 
+[client]
+# The key to hold to talk, named the way the browser names it
+# (KeyboardEvent.code): ControlRight, AltLeft, Space, F13, KeyT...
+#
+# This is the canonical spelling because it is the one with a specification
+# behind it; the Python client maps it to pynput's names. Pick it in the
+# panel under Settings rather than by guessing at the name here.
+push_to_talk_key = "ControlRight"
+# Whether the panel may use the microphone as soon as it is open. With this
+# on, the browser holds the mic stream for as long as the tab is, which is
+# what the recording indicator in the tab strip is showing.
+listen_when_open = true
+
 [server]
 host = "127.0.0.1"
 port = 8000

@@ -264,8 +264,20 @@ async def tts_endpoint(body: TextIn):
 
 
 @app.post("/converse")
-async def converse(file: UploadFile, agentic: bool = Form(AGENT["default_agentic"])):
-    """Audio in, streamed Opus out. The whole loop, which is Phase 1's point."""
+async def converse(file: UploadFile,
+                   agentic: bool = Form(AGENT["default_agentic"]),
+                   format: str = Form("opus")):
+    """Audio in, streamed audio out. The whole loop, which is Phase 1's point.
+
+    Two output formats, for two clients. The Python client takes Ogg Opus,
+    which is what you want over a socket. The browser cannot stream Ogg — no
+    MediaSource support for it — so the panel takes raw mono 16-bit PCM at the
+    TTS rate and schedules the chunks itself. Over loopback the bandwidth
+    difference is irrelevant, and it keeps the reply streaming sentence by
+    sentence in both, which is the part that actually decides felt latency.
+    """
+    if format not in ("opus", "pcm"):
+        raise HTTPException(status_code=400, detail="format must be opus or pcm")
     # Clock starts before the body is read: the upload crosses the WSL2
     # boundary from the Windows client, and timing from after the read hides
     # that cost entirely.
@@ -287,7 +299,7 @@ async def converse(file: UploadFile, agentic: bool = Form(AGENT["default_agentic
     prompt = memory.messages(heard, turn_note(woke))
 
     async def generate():
-        stream = tts.OpusStream()
+        stream = tts.OpusStream() if format == "opus" else None
         first_sound = None
         spoken = []
 
@@ -297,7 +309,8 @@ async def converse(file: UploadFile, agentic: bool = Form(AGENT["default_agentic
             async for sentence in reply_stream(heard, agentic, prompt):
                 async with models.gpu_lock:
                     samples = await asyncio.to_thread(tts.synthesize, sentence)
-                    chunk = await asyncio.to_thread(stream.push, samples)
+                    chunk = (await asyncio.to_thread(stream.push, samples)
+                             if stream else tts.to_pcm16(samples))
                 spoken.append(sentence)
                 if not chunk:
                     # The Ogg muxer emits whole pages; until one is complete
@@ -309,9 +322,10 @@ async def converse(file: UploadFile, agentic: bool = Form(AGENT["default_agentic
                              first_sound)
                 yield chunk
 
-            tail = await asyncio.to_thread(stream.close)
-            if tail:
-                yield tail
+            if stream:
+                tail = await asyncio.to_thread(stream.close)
+                if tail:
+                    yield tail
 
         await remember(heard, " ".join(spoken))
         total = (time.perf_counter() - start) * 1000
@@ -322,4 +336,13 @@ async def converse(file: UploadFile, agentic: bool = Form(AGENT["default_agentic
         )
         log.info("reply complete %.0fms %r", total, " ".join(spoken))
 
+    if format == "pcm":
+        return StreamingResponse(
+            generate(), media_type="audio/L16",
+            # The panel needs the rate to schedule the chunks, and reading it
+            # from a header keeps it from being hardcoded in two places.
+            headers={"X-Sample-Rate": str(settings.TTS["sample_rate"])},
+        )
     return StreamingResponse(generate(), media_type="audio/ogg")
+
+

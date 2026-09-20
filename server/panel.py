@@ -11,6 +11,7 @@ reached, so a malformed save cannot take the server down with it.
 """
 
 import logging
+import re
 import time
 from dataclasses import dataclass, field as dataclass_field
 from pathlib import Path
@@ -22,10 +23,27 @@ from pydantic import BaseModel
 from . import settings
 from .memory import memory
 from .tools import builtin
+from .tools.registry import AGENT
 
 log = logging.getLogger("naka.panel")
 
 router = APIRouter()
+
+# KeyboardEvent.code values are identifiers — ControlRight, F13, KeyT, Digit4 —
+# so the shape can be checked without keeping a list of every key in existence.
+_KEY_CODE = re.compile(r"[A-Za-z][A-Za-z0-9]{0,31}")
+
+
+@router.get("/client")
+async def client_config():
+    """What a client needs before it can listen. Small and cheap on purpose:
+    the panel re-reads it whenever the settings are saved."""
+    return {
+        "push_to_talk_key": settings.CLIENT["push_to_talk_key"],
+        "listen_when_open": settings.CLIENT["listen_when_open"],
+        "sample_rate": settings.TTS["sample_rate"],
+        "agentic": AGENT["default_agentic"],
+    }
 
 
 # ------------------------------------------------------------------- notes
@@ -143,7 +161,7 @@ class Field:
 
     key: str
     label: str
-    kind: str  # text | int | float | bool | choice
+    kind: str  # text | int | float | bool | choice | key
     group: str
     help: str = ""
     applies: str = "live"  # live | models
@@ -154,6 +172,15 @@ class Field:
 
 
 FIELDS: list[Field] = [
+    Field("settings.client.push_to_talk_key", "Push to talk", "key", "Talking",
+          "Hold this to speak. Named as the browser names it, so it follows "
+          "the physical key rather than the character it types."),
+    Field("settings.client.listen_when_open", "Listen while the panel is open",
+          "bool", "Talking",
+          "The browser holds the microphone for as long as the tab is open, "
+          "which is what the recording dot in the tab strip means. Off means "
+          "asking for it each time you first speak."),
+
     Field("settings.identity.assistant", "Assistant name", "text", "Identity",
           "What she is called, everywhere — the persona reads it from here."),
     Field("settings.identity.user", "Your name", "text", "Identity",
@@ -265,6 +292,8 @@ def _coerce(f: Field, value):
                 raise ValueError("cannot be empty")
             if f.kind == "choice" and coerced not in f.options:
                 raise ValueError(f"must be one of {', '.join(f.options)}")
+            if f.kind == "key" and not _KEY_CODE.fullmatch(coerced):
+                raise ValueError("not a key name the browser would produce")
             return coerced
     except (TypeError, ValueError) as e:
         raise HTTPException(status_code=400,

@@ -31,6 +31,7 @@ const ICONS = [
   'Cpu',
   'FileText',
   'Ellipsis',
+  'Keyboard',
   'LoaderCircle',
   'Mic',
   'NotebookPen',

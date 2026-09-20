@@ -113,3 +113,16 @@ class OpusStream:
 def encode_opus(samples: np.ndarray) -> bytes:
     stream = OpusStream()
     return stream.push(samples) + stream.close()
+
+
+def to_pcm16(samples: np.ndarray) -> bytes:
+    """Mono float32 to little-endian 16-bit PCM, for clients that decode none.
+
+    Clipped rather than scaled to fit: the DSP chain ends in a limiter, so
+    anything past full scale here is a bug upstream, and quietly rescaling the
+    whole reply would hide it.
+    """
+    if not samples.size:
+        return b""
+    clipped = np.clip(samples, -1.0, 1.0)
+    return (clipped * 32767.0).astype("<i2").tobytes()

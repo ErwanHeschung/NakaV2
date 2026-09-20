@@ -11,13 +11,15 @@ import { api, type MemoryState, type OpsStatus } from './api.js';
 import { el, poll, relativeTime, replace } from './dom.js';
 import { Orb, type OrbState } from './orb.js';
 import {
+  onSettingsSaved,
   renderMemory,
   renderNotes,
   renderSettings,
   renderTimers,
   renderTools,
 } from './panels.js';
-import { card, icon, panel, type IconName } from './ui.js';
+import { Talk, type TalkState } from './talk.js';
+import { card, icon, iconButton, keyName, panel, type IconName } from './ui.js';
 
 const root = document.querySelector<HTMLElement>('#app');
 if (!root) throw new Error('missing #app');
@@ -34,7 +36,11 @@ const drawer = el('aside', { class: 'drawer' });
 const brandMark = el('span', { class: 'mark' });
 const brand = el('div', { class: 'brand' }, brandMark, 'Naka');
 const statusLine = el('span', { class: 'muted' }, 'connecting…');
-topbar.append(brand, statusLine, el('div', { class: 'spacer' }));
+const talkHint = el('span', { class: 'muted talk-hint' }, '');
+const micButton = iconButton('mic', 'Microphone', () => {
+  void talk.toggle();
+});
+topbar.append(brand, statusLine, el('div', { class: 'spacer' }), talkHint, micButton);
 
 const orbCanvas = el('canvas', { class: 'orb' });
 const orbWhat = el('div', { class: 'what' }, 'Connecting');
@@ -50,6 +56,49 @@ stage.append(
 
 root.append(topbar, convo.root, stage, latest, rail, drawer);
 const orb = new Orb(orbCanvas);
+
+/* -------------------------------------------------------- push to talk */
+
+// What the panel is doing outranks what the server reports: while a turn is
+// in flight the orb should follow this conversation, not the poll.
+let talkState: TalkState = 'off';
+let talkDetail = '';
+
+const talk = new Talk({
+  onState: (state, detail) => {
+    talkState = state;
+    talkDetail = detail ?? '';
+    paintTalk();
+  },
+  onLevel: (level) => {
+    orb.setLevel(level);
+  },
+  // The reply lands in the conversation as soon as the server has recorded
+  // it, rather than up to six seconds later on the next poll.
+  onTranscript: () => {
+    setTimeout(() => {
+      void api.memory().then(renderConversation);
+    }, 400);
+  },
+});
+
+function paintTalk(): void {
+  micButton.classList.toggle('active', talk.armed);
+  micButton.classList.toggle('recording', talkState === 'listening');
+  talkHint.textContent = talk.armed
+    ? `hold ${keyName(talk.key)} to talk`
+    : talkDetail || 'microphone off';
+  if (talkDetail && talk.armed) talkHint.textContent = talkDetail;
+}
+
+// Deliberately not awaited at the top level: this can sit on a microphone
+// permission prompt, and the status polling below must not wait for the user
+// to answer it.
+// oxlint-disable-next-line unicorn/prefer-top-level-await
+void talk.start().then(paintTalk).catch(paintTalk);
+onSettingsSaved(() => {
+  void talk.refresh();
+});
 
 /* ----------------------------------------------------------------- drawer */
 
@@ -152,7 +201,15 @@ let noteCount: number | null = null;
 let timerCount: number | null = null;
 let soonestTimer = '';
 
+const TALKING: Partial<Record<TalkState, { orbState: OrbState; what: string }>> = {
+  listening: { orbState: 'speaking', what: 'Listening to you' },
+  thinking: { orbState: 'thinking', what: 'Thinking' },
+  speaking: { orbState: 'speaking', what: 'Speaking' },
+};
+
 function describe(state: OpsStatus): { orbState: OrbState; what: string } {
+  const talking = TALKING[talkState];
+  if (talking) return talking;
   if (state.in_flight > 0) return { orbState: 'thinking', what: 'Working' };
   if (state.models_loaded && state.llm_up === true) {
     return { orbState: 'idle', what: 'Listening' };

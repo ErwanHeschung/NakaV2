@@ -738,3 +738,43 @@ button.item.clickable:hover {
   background: rgba(15, 18, 24, 0.97);
   backdrop-filter: blur(14px);
 }
+
+/* ------------------------------------------------------------ push to talk */
+
+.talk-hint {
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+/* The mic button carries three states: released, held open, and recording.
+   Recording pulses, because the one thing that must never be ambiguous is
+   whether the microphone is live. */
+.icon-btn.recording {
+  color: var(--bad);
+  background: rgba(255, 107, 107, 0.14);
+  border-color: rgba(255, 107, 107, 0.4);
+  animation: live 1.1s ease-in-out infinite;
+}
+
+@keyframes live {
+  50% {
+    box-shadow: 0 0 0 4px rgba(255, 107, 107, 0.12);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .icon-btn.recording {
+    animation: none;
+  }
+}
+
+button.key-field {
+  font-family: ui-monospace, 'Cascadia Code', 'Fira Code', monospace;
+  font-size: 12px;
+}
+
+button.key-field.listening {
+  color: var(--accent);
+  border-color: rgba(124, 92, 255, 0.5);
+  background: rgba(124, 92, 255, 0.12);
+}

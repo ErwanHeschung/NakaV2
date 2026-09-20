@@ -71,7 +71,7 @@ export interface TimersState {
 export interface SettingField {
   key: string;
   label: string;
-  kind: 'text' | 'int' | 'float' | 'bool' | 'choice';
+  kind: 'text' | 'int' | 'float' | 'bool' | 'choice' | 'key';
   group: string;
   help: string;
   applies: 'live' | 'models';
@@ -92,6 +92,14 @@ export interface SettingsSaved {
   saved: string[];
   needs_model_reload: string[];
   fields: SettingField[];
+}
+
+/** What a client needs before it can listen. */
+export interface ClientConfig {
+  push_to_talk_key: string;
+  listen_when_open: boolean;
+  sample_rate: number;
+  agentic: boolean;
 }
 
 export class ApiError extends Error {
@@ -145,6 +153,15 @@ export class NakaApi {
 
   load(): Promise<unknown> {
     return this.request('/ops/load', { method: 'POST' });
+  }
+
+  clientConfig(): Promise<ClientConfig> {
+    return this.request('/client');
+  }
+
+  /** Starts a model reload without waiting for it, on the first key down. */
+  wake(): Promise<unknown> {
+    return this.request('/ops/wake', { method: 'POST' });
   }
 
   memory(): Promise<MemoryState> {

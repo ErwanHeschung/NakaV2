@@ -3,6 +3,7 @@
 import io
 import wave
 
+import av
 import numpy as np
 
 from . import models, settings
@@ -42,6 +43,31 @@ def decode_wav(data: bytes) -> np.ndarray:
     return audio
 
 
+def decode_compressed(data: bytes) -> np.ndarray:
+    """Anything PyAV can open, to mono float32 at 16 kHz.
+
+    The browser records with MediaRecorder, which produces WebM/Opus and not
+    WAV. Rather than reimplementing capture in the panel with an AudioWorklet
+    purely to control the container, the server decodes what the browser
+    natively produces — PyAV is already here for the Opus replies.
+    """
+    with av.open(io.BytesIO(data), mode="r") as container:
+        resampler = av.AudioResampler(format="flt", layout="mono",
+                                      rate=WHISPER_RATE)
+        chunks = [
+            resampled.to_ndarray().reshape(-1)
+            for frame in container.decode(audio=0)
+            for resampled in resampler.resample(frame)
+        ]
+        chunks += [
+            resampled.to_ndarray().reshape(-1)
+            for resampled in resampler.resample(None)
+        ]
+    if not chunks:
+        return np.zeros(0, dtype=np.float32)
+    return np.concatenate(chunks).astype(np.float32)
+
+
 def transcribe_array(audio: np.ndarray) -> str:
     segments, _ = models.stt.transcribe(
         audio,
@@ -51,5 +77,12 @@ def transcribe_array(audio: np.ndarray) -> str:
     return " ".join(segment.text.strip() for segment in segments).strip()
 
 
-def transcribe(wav_bytes: bytes) -> str:
-    return transcribe_array(decode_wav(wav_bytes))
+def transcribe(data: bytes) -> str:
+    """WAV is read directly; everything else goes through PyAV.
+
+    Sniffed rather than taken from the upload's content type, because the two
+    clients disagree about what they call it and the first four bytes do not.
+    """
+    if data[:4] == b"RIFF":
+        return transcribe_array(decode_wav(data))
+    return transcribe_array(decode_compressed(data))
