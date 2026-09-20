@@ -1,0 +1,22 @@
+{
+  "name": "naka-ui",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Control panel for Naka: settings, memory, notes and timers.",
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc --watch",
+    "lint": "oxlint --type-aware",
+    "lint:fix": "oxlint --type-aware --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "check": "tsc --noEmit && oxlint --type-aware && prettier --check ."
+  },
+  "devDependencies": {
+    "typescript": "7.0.2",
+    "oxlint": "1.83.0",
+    "oxlint-tsgolint": "7.0.2002",
+    "prettier": "3.9.8"
+  }
+}

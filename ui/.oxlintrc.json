@@ -1,0 +1,26 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["typescript", "unicorn", "oxc"],
+  "env": {
+    "browser": true,
+    "es2024": true
+  },
+  "categories": {
+    "correctness": "error",
+    "suspicious": "error",
+    "pedantic": "warn"
+  },
+  "rules": {
+    "no-console": "off",
+    "typescript/no-explicit-any": "error",
+    "typescript/no-floating-promises": "error",
+    "typescript/no-misused-promises": "error",
+    "typescript/await-thenable": "error",
+    "unicorn/prefer-query-selector": "error",
+    "unicorn/no-null": "off",
+    "typescript/prefer-readonly-parameter-types": "off",
+    "max-lines-per-function": "off",
+    "max-classes-per-file": "off"
+  },
+  "ignorePatterns": ["public/js", "node_modules"]
+}

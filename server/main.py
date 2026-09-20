@@ -6,10 +6,12 @@ import json
 import logging
 import time
 from datetime import datetime
+from pathlib import Path
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Form, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from . import agent, llm, logprune, models, ops, settings, stt, tts, turnlog
@@ -67,6 +69,15 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title=settings.IDENTITY["assistant"], lifespan=lifespan)
+
+# The control panel, served from the same origin as the API it calls — which
+# keeps it on loopback and means no CORS. Mounted only if it has been built,
+# so the server still starts on a machine where the UI was never compiled.
+_UI = Path(__file__).resolve().parent.parent / "ui" / "public"
+if (_UI / "index.html").exists():
+    app.mount("/ui", StaticFiles(directory=_UI, html=True), name="ui")
+    log.info("control panel at http://%s:%s/ui",
+             settings.SERVER["host"], settings.SERVER["port"])
 
 
 class TextIn(BaseModel):

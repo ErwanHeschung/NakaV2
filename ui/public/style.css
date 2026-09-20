@@ -1,0 +1,139 @@
+:root {
+  color-scheme: light dark;
+  --bg: #fcfcfb;
+  --fg: #1a1a19;
+  --muted: #6b6a66;
+  --line: #e4e3df;
+  --panel: #ffffff;
+  --ok: #1baf7a;
+  --off: #b4b3ae;
+  --danger: #e34948;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #17171a;
+    --fg: #ededec;
+    --muted: #9a9a94;
+    --line: #2c2c30;
+    --panel: #1e1e22;
+  }
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font:
+    14px/1.55 ui-sans-serif,
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    sans-serif;
+}
+header {
+  padding: 20px 24px 0;
+}
+h1 {
+  margin: 0;
+  font-size: 20px;
+  letter-spacing: -0.01em;
+}
+h2 {
+  margin: 0 0 12px;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+h3 {
+  margin: 18px 0 6px;
+  font-size: 13px;
+}
+main {
+  display: grid;
+  gap: 16px;
+  padding: 20px 24px 40px;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+}
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 16px;
+}
+.row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin: 10px 0;
+}
+.muted {
+  color: var(--muted);
+}
+.error {
+  color: var(--danger);
+}
+.dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--off);
+}
+.dot.on {
+  background: var(--ok);
+}
+.bar {
+  height: 7px;
+  border-radius: 4px;
+  background: var(--line);
+  overflow: hidden;
+  margin: 10px 0 4px;
+}
+.bar-fill {
+  height: 100%;
+  background: var(--ok);
+  transition: width 0.3s ease;
+}
+button {
+  font: inherit;
+  padding: 6px 12px;
+  border-radius: 7px;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--fg);
+  cursor: pointer;
+}
+button:hover:not(:disabled) {
+  border-color: var(--muted);
+}
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+button.danger {
+  color: var(--danger);
+}
+p {
+  margin: 6px 0;
+}
+ol.facts {
+  margin: 6px 0;
+  padding-left: 22px;
+}
+ol.facts li {
+  margin: 3px 0;
+}
+.turn {
+  border-left: 2px solid var(--line);
+  padding-left: 10px;
+  margin: 8px 0;
+}
+.said {
+  margin: 2px 0;
+}
+.said.you {
+  color: var(--muted);
+}
