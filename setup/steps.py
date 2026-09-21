@@ -52,6 +52,8 @@ DOWNLOADS = paths.CACHE / "downloads"
 # an estimate — uv does not report install progress in a machine-readable way —
 # but the bar only has to move honestly, not to the byte.
 VENV_BYTES = 4_800_000_000
+# CPython 3.12 as uv unpacks it, measured.
+PYTHON_BYTES = 68_000_000
 
 
 class StepError(Exception):
@@ -123,16 +125,42 @@ class _Watch:
         self._stop = threading.Event()
         self._base = _dir_bytes(path) if path.exists() else 0
 
+    def grown(self) -> int:
+        return _dir_bytes(self.path) - self._base if self.path.exists() else 0
+
+    def measure(self) -> tuple[int, int, str]:
+        return min(self.grown(), self.total), self.total, self.message
+
     def __enter__(self):
         def loop():
             while not self._stop.wait(1.0):
-                grown = _dir_bytes(self.path) - self._base if self.path.exists() else 0
-                self.ctx.progress(min(grown, self.total), self.total, self.message)
+                self.ctx.progress(*self.measure())
         threading.Thread(target=loop, daemon=True).start()
         return self
 
     def __exit__(self, *exc):
         self._stop.set()
+
+
+class _SyncWatch(_Watch):
+    """uv sync in two halves: every wheel into uv's cache, then into the venv.
+
+    Watching the venv alone left the bar at zero through the download, which
+    is most of the step. Each half is counted as the venv's size: the cache
+    holds the wheels unpacked, so it grows to about that too. Each half has a
+    bar of its own, so the megabytes shown are real ones. A cache that was
+    already warm goes straight to the install half once the venv grows.
+    """
+
+    def __init__(self, ctx: Context):
+        super().__init__(ctx, VENV, VENV_BYTES, "Installing the runtime")
+        self._cache = _Watch(ctx, Path(_uv_env()["UV_CACHE_DIR"]), VENV_BYTES,
+                             "Downloading the runtime")
+
+    def measure(self) -> tuple[int, int, str]:
+        if self.grown() > 20_000_000:
+            return super().measure()
+        return self._cache.measure()
 
 
 def _run(argv: list[str], *, env: dict | None = None, cwd: Path | None = None,
@@ -222,12 +250,13 @@ def step_uv(ctx: Context) -> str:
 def step_python(ctx: Context) -> str:
     version = ctx.runtime["python"]
     ctx.progress(message=f"Installing Python {version}")
+    watch = _Watch(ctx, PYTHON_DIR, PYTHON_BYTES, f"Installing Python {version}")
     # --no-registry: by default uv also lists the Python it installs in the
     # Windows registry (PEP 514), where every other tool on the machine would
     # find it and pick it up. Naka's Python is Naka's alone.
-    code, tail = _run([str(UV), "python", "install", "--no-registry", version],
-                      env=_uv_env(),
-                      on_line=lambda line: ctx.progress(message=line[:120]))
+    with watch:
+        code, tail = _run([str(UV), "python", "install", "--no-registry", version],
+                          env=_uv_env())
     if code != 0:
         raise StepError("Python could not be installed:\n  " + "\n  ".join(tail[-6:]))
     return f"Python {version}"
@@ -240,7 +269,7 @@ def step_venv(ctx: Context) -> str:
     --no-install-project because the server runs from the app folder as it
     is; building it into a wheel would only add a step that can fail.
     """
-    with _Watch(ctx, VENV, VENV_BYTES, "Installing the runtime"):
+    with _SyncWatch(ctx):
         code, tail = _run(
             [str(UV), "sync", "--frozen", "--no-dev", "--no-install-project",
              "--python", ctx.runtime["python"]],
