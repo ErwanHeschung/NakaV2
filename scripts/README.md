@@ -1,20 +1,39 @@
 # Running Naka
 
+Native Windows. The WSL2 + Docker setup this project started on is preserved
+at the `legacy-wsl-docker` tag and is no longer maintained.
+
 ## Day to day
 
-```bash
-./scripts/start-naka.sh      # container + server, idempotent
-tail -f logs/naka.log
+From the repo, in PowerShell:
+
+```powershell
+uv run uvicorn server.main:app --host 127.0.0.1 --port 8000
 ```
 
-Then run the client on the **Windows** side, not in WSL:
+The server starts `llama-server.exe` itself the first time something needs the
+language model, and stops it again when idle. The panel is at
+<http://127.0.0.1:8000/ui/>. Hold the push-to-talk key (right Ctrl by default)
+with the panel focused, or run `uv run python client/ptt.py` to talk from
+anywhere.
 
-```
-pip install -r client/requirements.txt
-python client/ptt.py
-```
+Always `127.0.0.1`, never `localhost`: on Windows the name resolves to `::1`
+first, and against an IPv4-only server every new connection stalls on that
+attempt before falling back — a flat ~2.4 s per reply.
 
-Hold right-ctrl to talk.
+## Where things live
+
+| | |
+|---|---|
+| `%LOCALAPPDATA%\Naka\config` | your settings, voice, persona, facts, tools — what the panel edits |
+| `%LOCALAPPDATA%\Naka\logs` | `turns.jsonl`, `audit.jsonl` |
+| `%LOCALAPPDATA%\Naka\models` | the GGUF weights |
+| `%LOCALAPPDATA%\Naka\runtime\llama` | `llama-server.exe` and its CUDA DLLs |
+| `%LOCALAPPDATA%\Naka\cache\hf` | Whisper and Kokoro weights |
+| `Documents\Naka Notes` | notes |
+
+`config/` in the repo holds the shipped defaults only. Each file is copied into
+the data directory the first time it is missing, and never overwritten after.
 
 ## Freeing the GPU for a game
 
@@ -22,42 +41,22 @@ Naka holds about 9.3 GB while resident, and a recent game wants 10-14 GB of
 the card's 16 GB. Residency is deliberate — reloading per utterance would cost
 seconds every time — so it has to be released explicitly:
 
-```bash
-curl -X POST localhost:8000/ops/unload   # ~1.8s, frees ~9.3 GB
-curl -X POST localhost:8000/ops/load     # ~25s, warmed and answering
-curl localhost:8000/ops/status
+```powershell
+curl.exe -X POST http://127.0.0.1:8000/ops/unload   # frees ~9.3 GB
+curl.exe -X POST http://127.0.0.1:8000/ops/load     # warmed and answering
+curl.exe http://127.0.0.1:8000/ops/status
 ```
 
-`/ops/unload` releases the Python-side models *and* stops the llama.cpp
-container, which is the larger share. `/ops/load` waits for the container to
-actually answer before reporting ready, rather than merely starting it.
+`/ops/unload` releases the Python-side models *and* stops `llama-server.exe`,
+which is the larger share. `/ops/load` waits for it to actually answer before
+reporting ready, rather than merely starting it.
 
 These are operator controls and are deliberately not registered as tools: the
 model cannot unload itself mid-sentence, or be talked into it.
 
-## Starting at logon
-
-Without this it quietly falls out of use — anything needing two terminal
-commands before you can speak to it does not get spoken to.
-
-In Windows Task Scheduler, create a task that runs at logon:
-
-- **Program:** `wsl.exe`
-- **Arguments:** `-d Ubuntu -- /home/erwan/projects/NakaV2/scripts/start-naka.sh`
-- Tick **Run whether user is logged on or not** off; it needs the desktop session.
-
-Or from an elevated PowerShell:
-
-```powershell
-$action  = New-ScheduledTaskAction -Execute 'wsl.exe' `
-  -Argument '-d Ubuntu -- /home/erwan/projects/NakaV2/scripts/start-naka.sh'
-$trigger = New-ScheduledTaskTrigger -AtLogOn
-Register-ScheduledTask -TaskName 'Naka' -Action $action -Trigger $trigger
-```
-
 ## After changing anything
 
-```bash
+```powershell
 uv run python eval/regression.py            # replay the 20 reference phrases
 uv run python eval/regression.py --agentic  # same, with tools offered
 uv run python eval/test_guardrails.py       # safety checks, no model needed
@@ -72,6 +71,5 @@ stopped answering, something got slow, the voice stopped coming out.
 
 | file | what |
 |---|---|
-| `logs/naka.log` | human-readable; watch it work |
-| `logs/turns.jsonl` | one line per exchange: what was heard, the full prompt, what was said, timings |
-| `logs/audit.jsonl` | every tool call with its arguments, including refusals |
+| `turns.jsonl` | one line per exchange: what was heard, the full prompt, what was said, timings |
+| `audit.jsonl` | every tool call with its arguments, including refusals |
