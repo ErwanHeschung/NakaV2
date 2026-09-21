@@ -47,11 +47,14 @@ def run(argv: list[str], **kwargs) -> None:
 
 
 def tool(name: str) -> str:
-    # npm is a .cmd on Windows, which CreateProcess will not find by bare name.
-    found = shutil.which(name + (".cmd" if sys.platform == "win32" and name == "npm" else ""))
-    if not found:
-        sys.exit(f"{name} is not on PATH")
-    return found
+    # npm is usually a .cmd shim on Windows, which CreateProcess will not find
+    # by bare name; some installs (e.g. nvm-windows) ship npm.exe instead.
+    names = (name, name + ".cmd") if sys.platform == "win32" and name == "npm" else (name,)
+    for candidate in names:
+        found = shutil.which(candidate)
+        if found:
+            return found
+    sys.exit(f"{name} is not on PATH")
 
 
 def build_ui() -> None:
