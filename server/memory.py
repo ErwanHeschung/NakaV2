@@ -18,9 +18,11 @@ from itertools import groupby
 from typing import NamedTuple
 from pathlib import Path
 
+from . import paths
+
 log = logging.getLogger("naka.memory")
 
-CONFIG = Path(__file__).resolve().parent.parent / "config"
+CONFIG = paths.CONFIG
 
 RECENT_TURNS = 3
 # Turns beyond the recent window accumulate here until there are enough to be
@@ -141,7 +143,7 @@ class Memory:
         editing prompts embedded in code.
         """
         from . import settings
-        text = (CONFIG / "persona.md").read_text().strip()
+        text = (CONFIG / "persona.md").read_text(encoding="utf-8").strip()
         try:
             return text.format(**settings.IDENTITY)
         except KeyError as e:
@@ -153,7 +155,7 @@ class Memory:
         path = CONFIG / "facts.json"
         if not path.exists():
             return []
-        return json.loads(path.read_text()).get("facts", [])
+        return json.loads(path.read_text(encoding="utf-8")).get("facts", [])
 
     def save_facts(self) -> None:
         """Persist facts, keeping the file's own guidance comment intact.
@@ -162,10 +164,10 @@ class Memory:
         cannot leave her with no facts at all.
         """
         path = CONFIG / "facts.json"
-        existing = json.loads(path.read_text()) if path.exists() else {}
+        existing = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
         existing["facts"] = self.facts
         temp = path.with_suffix(".json.tmp")
-        temp.write_text(json.dumps(existing, indent=2, ensure_ascii=False) + "\n")
+        temp.write_text(json.dumps(existing, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
         temp.replace(path)
         log.info("facts saved (%d)", len(self.facts))
 

@@ -3,10 +3,10 @@
 # these rather than naming anyone, so the app can ship to someone else by
 # editing this block and persona.md.
 assistant = "Naka"
-user = "Erwan"
+user = "User"
 # Used when the persona or a prompt needs a pronoun for the user.
-user_pronoun = "he"
-user_possessive = "his"
+user_pronoun = "they"
+user_possessive = "their"
 
 [client]
 # The key to hold to talk, named the way the browser names it
@@ -32,7 +32,7 @@ port = 8000
 
 [llm]
 # llama.cpp container from compose.yml
-url = "http://localhost:8080"
+url = "http://127.0.0.1:8080"
 temperature = 0.0
 max_tokens = 256
 # Both Gemma 4 and Qwen3 emit reasoning tokens by default. They never reach the

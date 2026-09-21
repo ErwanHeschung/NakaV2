@@ -18,7 +18,7 @@ agent:
 
 paths:
   # The only directory any tool may read or write.
-  notes_dir: "~/naka-notes"
+  notes_dir: "~/Documents/Naka Notes"
 
 facts:
   # Hard ceiling on remembered facts. They sit in the system prompt on every

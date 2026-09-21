@@ -11,3 +11,4 @@ logs/
 # regenerate by re-running the TTS benches).
 eval/audio/samples/
 eval/audio/voice/
+.data/

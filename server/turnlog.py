@@ -10,9 +10,11 @@ import logging
 from pathlib import Path
 from datetime import datetime
 
+from . import paths
+
 log = logging.getLogger("naka.turnlog")
 
-PATH = Path(__file__).resolve().parent.parent / "logs" / "turns.jsonl"
+PATH = paths.LOGS / "turns.jsonl"
 
 
 def record(*, heard: str, messages: list[dict], spoken: list[str],
@@ -30,7 +32,7 @@ def record(*, heard: str, messages: list[dict], spoken: list[str],
         "timings_ms": {k: round(v) for k, v in timings.items()},
     }
     try:
-        with PATH.open("a") as f:
+        with PATH.open("a", encoding="utf-8") as f:
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")
     except OSError as e:
         # Logging must never take the conversation down with it.

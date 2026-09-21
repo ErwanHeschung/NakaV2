@@ -165,7 +165,7 @@ def search_notes(query: str, limit: int = 5):
     hits = []
     needle = query.lower()
     for path in sorted(NOTES_DIR.glob("*.md")):
-        for number, line in enumerate(path.read_text().splitlines(), 1):
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
             if needle in line.lower():
                 hits.append(f"{path.stem} line {number}: {line.strip()}")
                 if len(hits) >= limit:
@@ -182,7 +182,7 @@ def read_note(name: str):
     path = note_path(name)
     if not path.exists():
         return f"There is no note called '{name}'."
-    return path.read_text().strip()[:2000] or "That note is empty."
+    return path.read_text(encoding="utf-8").strip()[:2000] or "That note is empty."
 
 
 @tool(
@@ -196,7 +196,7 @@ def read_note(name: str):
 def write_note(name: str, content: str):
     path = note_path(name)
     existed = path.exists()
-    with path.open("a") as f:
+    with path.open("a", encoding="utf-8") as f:
         f.write(content.rstrip() + "\n")
     return f"{'Appended to' if existed else 'Created'} note '{path.stem}'."
 

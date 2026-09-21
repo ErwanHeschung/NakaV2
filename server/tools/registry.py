@@ -7,6 +7,7 @@ its arguments, whether it succeeded or not.
 """
 
 import json
+import os
 import logging
 import time
 from collections.abc import Callable
@@ -15,7 +16,7 @@ from pathlib import Path
 
 import yaml
 
-from .. import events
+from .. import events, paths
 
 log = logging.getLogger("naka.tools")
 
@@ -29,17 +30,44 @@ TOPICS = {
     "cancel_timer": "timers",
 }
 
-ROOT = Path(__file__).resolve().parent.parent.parent
-CONFIG = ROOT / "config" / "tools.yaml"
-AUDIT = ROOT / "logs" / "audit.jsonl"
+CONFIG = paths.CONFIG / "tools.yaml"
+AUDIT = paths.LOGS / "audit.jsonl"
 
-_config = yaml.safe_load(CONFIG.read_text())
-AGENT = _config["agent"]
-PATHS = _config["paths"]
+
+def _load_config() -> dict:
+    """The person's tools.yaml, falling back to the shipped one.
+
+    Read at import, which is when every tool registers — so a file that is
+    missing or malformed used to kill the process with a bare traceback. In
+    an app with no console, that is a server that silently never starts.
+    """
+    for candidate in (CONFIG, paths.DEFAULTS / "tools.yaml"):
+        try:
+            loaded = yaml.safe_load(candidate.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            continue
+        except yaml.YAMLError as e:
+            log.error("%s is not valid YAML (%s); using the shipped defaults",
+                      candidate, e)
+            continue
+        if isinstance(loaded, dict) and "tools" in loaded:
+            return loaded
+        log.error("%s has no tools section; using the shipped defaults",
+                  candidate)
+    raise RuntimeError(f"no usable tools.yaml in {CONFIG} or {paths.DEFAULTS}")
+
+
+_config = _load_config()
+AGENT = _config.get("agent", {"max_steps": 5, "timeout": 30,
+                              "default_agentic": False})
+PATHS = _config.get("paths", {})
 FACTS = _config.get("facts", {})
 _allowlist = _config["tools"]
 
-NOTES_DIR = Path(PATHS["notes_dir"]).expanduser()
+# expandvars as well as expanduser, so the shipped default can say
+# "~/Documents/Naka Notes" and a person can point it at %OneDrive% themselves.
+NOTES_DIR = Path(os.path.expandvars(
+    PATHS.get("notes_dir", "~/Documents/Naka Notes"))).expanduser()
 
 
 @dataclass
@@ -112,7 +140,7 @@ def audit(name: str, arguments: dict, status: str, detail: str = "") -> None:
         "status": status,
         "detail": detail[:500],
     }
-    with AUDIT.open("a") as f:
+    with AUDIT.open("a", encoding="utf-8") as f:
         f.write(json.dumps(entry) + "\n")
     log.info("tool %s(%s) -> %s", name, json.dumps(arguments), status)
 

@@ -59,7 +59,7 @@ class NoteIn(BaseModel):
 
 
 def _note_view(path: Path, body: str | None = None) -> dict:
-    text = body if body is not None else path.read_text()
+    text = body if body is not None else path.read_text(encoding="utf-8")
     return {
         "name": path.stem,
         "modified": path.stat().st_mtime,
@@ -79,7 +79,7 @@ async def note_read(name: str):
     path = _resolve(name)
     if not path.exists():
         raise HTTPException(status_code=404, detail=f"no note called {name!r}")
-    return _note_view(path) | {"content": path.read_text()}
+    return _note_view(path) | {"content": path.read_text(encoding="utf-8")}
 
 
 @router.put("/notes/{name}")
@@ -89,7 +89,7 @@ async def note_write(name: str, body: NoteIn):
     text in front of them to be what the file says afterwards."""
     path = _resolve(name)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(body.content)
+    path.write_text(body.content, encoding="utf-8")
     log.info("note %r saved from the panel (%d bytes)", path.stem, len(body.content))
     events.publish("notes")
     return _note_view(path, body.content)
@@ -355,7 +355,7 @@ def _split(key: str) -> tuple[Path, list[str]]:
 
 def _current(key: str):
     path, parts = _split(key)
-    node = tomlkit.parse(path.read_text())
+    node = tomlkit.parse(path.read_text(encoding="utf-8"))
     for part in parts:
         if part not in node:
             return None
@@ -445,7 +445,7 @@ async def settings_write(body: SettingsIn):
     for path, edits in planned.items():
         # tomlkit round-trips the file, so the comments explaining each knob
         # survive being edited from a web page.
-        doc = tomlkit.parse(path.read_text())
+        doc = tomlkit.parse(path.read_text(encoding="utf-8"))
         for parts, value in edits:
             node = doc
             for part in parts[:-1]:
@@ -454,7 +454,7 @@ async def settings_write(body: SettingsIn):
                 node = node[part]
             node[parts[-1]] = value
         tmp = path.with_suffix(path.suffix + ".tmp")
-        tmp.write_text(tomlkit.dumps(doc))
+        tmp.write_text(tomlkit.dumps(doc), encoding="utf-8")
         tmp.replace(path)
         log.info("saved %d setting(s) to %s", len(edits), path.name)
 

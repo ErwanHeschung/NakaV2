@@ -16,9 +16,11 @@ import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
+from . import paths
+
 log = logging.getLogger("naka.logprune")
 
-LOGS = Path(__file__).resolve().parent.parent / "logs"
+LOGS = paths.LOGS
 LEADING_DATE = re.compile(r"^(\d{4}-\d{2}-\d{2})")
 
 
@@ -27,7 +29,7 @@ def _prune_jsonl(path: Path, cutoff: datetime) -> int:
     if not path.exists():
         return 0
     kept, dropped = [], 0
-    for line in path.read_text().splitlines():
+    for line in path.read_text(encoding="utf-8").splitlines():
         if not line.strip():
             continue
         try:
@@ -41,7 +43,7 @@ def _prune_jsonl(path: Path, cutoff: datetime) -> int:
             dropped += 1
     if dropped:
         temp = path.with_suffix(path.suffix + ".tmp")
-        temp.write_text("\n".join(kept) + ("\n" if kept else ""))
+        temp.write_text("\n".join(kept) + ("\n" if kept else ""), encoding="utf-8")
         temp.replace(path)
     return dropped
 
@@ -55,7 +57,7 @@ def _prune_text(path: Path, cutoff: datetime) -> int:
     if not path.exists():
         return 0
     kept, dropped, keeping = [], 0, True
-    for line in path.read_text(errors="replace").splitlines():
+    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
         match = LEADING_DATE.match(line)
         if match:
             try:
@@ -67,7 +69,7 @@ def _prune_text(path: Path, cutoff: datetime) -> int:
         else:
             dropped += 1
     if dropped:
-        with path.open("r+") as f:
+        with path.open("r+", encoding="utf-8") as f:
             f.write("\n".join(kept) + ("\n" if kept else ""))
             f.truncate()
     return dropped

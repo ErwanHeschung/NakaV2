@@ -14,7 +14,7 @@ from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import agent, events, llm, logprune, models, ops, panel, settings, stt, tts, turnlog
+from . import agent, events, llm, logprune, models, ops, panel, paths, settings, stt, tts, turnlog
 from .memory import memory
 from .tools import builtin
 from .tools.registry import AGENT, available
@@ -111,7 +111,7 @@ app = FastAPI(title=settings.IDENTITY["assistant"], lifespan=lifespan)
 # The control panel, served from the same origin as the API it calls — which
 # keeps it on loopback and means no CORS. Mounted only if it has been built,
 # so the server still starts on a machine where the UI was never compiled.
-_UI = Path(__file__).resolve().parent.parent / "ui" / "public"
+_UI = paths.UI
 
 
 class Panel(StaticFiles):
@@ -135,7 +135,11 @@ class Panel(StaticFiles):
         return response
 
 
-if (_UI / "index.html").exists():
+# Gated on the built entry point, not index.html: index.html is tracked in git
+# and always present, while js/ only exists after `npm run build`. Checking the
+# wrong one mounted an unbuilt panel that then 404'd in the browser with no
+# sign of it here — the opposite of what the comment above promises.
+if (_UI / "js" / "main.js").exists():
     app.mount("/ui", Panel(directory=_UI, html=True), name="ui")
     log.info("control panel at http://%s:%s/ui",
              settings.SERVER["host"], settings.SERVER["port"])

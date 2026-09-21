@@ -1,12 +1,4 @@
 {
-  "_comment": "Stable facts about the user, injected into every prompt. Kept short on purpose: this is prompt budget spent on every single turn, and there is a hard cap in tools.yaml. Naka can add to this herself via the remember tool; edit or prune it freely.",
-  "facts": [
-    "His name is Erwan.",
-    "He is a developer. Assume technical fluency; skip the basics unless asked.",
-    "He is French and may switch between French and English mid-conversation.",
-    "He built you. You run entirely on his own machine, with no internet access.",
-    "Erwan gets up at 7 a.m.",
-    "Erwan drinks a lot of coffee.",
-    "Erwan is allergic to peanuts."
-  ]
+  "_comment": "Stable facts about the user, injected into every prompt. Kept short on purpose: this is prompt budget spent on every single turn, and there is a hard cap in tools.yaml. The memory reconciler adds to and prunes this after each turn, and it is editable line by line in the panel. This shipped copy is only the starting point; the live one is in the data directory.",
+  "facts": []
 }
