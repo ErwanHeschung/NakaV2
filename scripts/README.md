@@ -84,3 +84,20 @@ stopped answering, something got slow, the voice stopped coming out.
 |---|---|
 | `turns.jsonl` | one line per exchange: what was heard, the full prompt, what was said, timings |
 | `audit.jsonl` | every tool call with its arguments, including refusals |
+
+## Building Naka.exe
+
+```powershell
+uv run --no-sync python packaging\build.py
+```
+
+Needs Node (the version in `ui/.nvmrc`) and `uv` on `PATH`. It builds the UI,
+freezes the tray in a venv of its own (`build\venv`, the `tray` and `build`
+dependency groups only — never torch), and lays out `build\dist\Naka` with the
+server's source, the panel, the default config and the manifests beside
+`Naka.exe`. It stops if the result is over 150 MB, which only happens when
+something heavy got bundled.
+
+Run as built, `Naka.exe` opens the setup wizard until setup has finished, then
+the tray. `NAKA_DATA_DIR` points it at another data folder for testing, and
+`NAKA_PYTHON` at an existing venv instead of the one setup installs.

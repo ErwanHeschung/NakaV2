@@ -18,9 +18,15 @@ other way round, so it is safe to import first from anywhere.
 
 import os
 import shutil
+import sys
 from pathlib import Path
 
-_REPO = Path(__file__).resolve().parent.parent
+# Installed, Naka.exe sits at the top of the app folder with the server's
+# source, the panel and the default config beside it — the server runs from
+# there under the runtime venv's Python, so it has to be plain files, not
+# something packed inside the executable. From a checkout, the repo is it.
+_REPO = (Path(sys.executable).resolve().parent if getattr(sys, "frozen", False)
+         else Path(__file__).resolve().parent.parent)
 
 
 def _data_default() -> Path:

@@ -42,12 +42,23 @@ build-backend = "hatchling.build"
 dev = [
     "matplotlib>=3.11.2",
 ]
+# Everything the tray imports, listed even where the runtime already pulls it
+# in: the frozen build installs this group on its own.
 tray = [
+    "httpx>=0.28.1",
+    "numpy",
     "pillow>=12.3.0",
     "pynput>=1.8.2",
     "pystray>=0.19.5",
     "pywebview>=6.2.1",
     "sounddevice>=0.5.6",
+    "tomlkit>=0.15.1",
+]
+# Freezes the tray into Naka.exe: packaging/build.py installs this group and
+# the tray's, alone, into a venv of its own. Never the runtime's — torch
+# would be swept into the bundle.
+build = [
+    "pyinstaller>=6.22.3",
 ]
 
 [tool.hatch.build.targets.wheel]

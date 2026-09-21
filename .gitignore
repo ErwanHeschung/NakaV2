@@ -12,3 +12,6 @@ logs/
 eval/audio/samples/
 eval/audio/voice/
 .data/
+
+# packaging/build.py output
+/build/

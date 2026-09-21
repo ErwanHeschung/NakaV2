@@ -222,7 +222,11 @@ def step_uv(ctx: Context) -> str:
 def step_python(ctx: Context) -> str:
     version = ctx.runtime["python"]
     ctx.progress(message=f"Installing Python {version}")
-    code, tail = _run([str(UV), "python", "install", version], env=_uv_env(),
+    # --no-registry: by default uv also lists the Python it installs in the
+    # Windows registry (PEP 514), where every other tool on the machine would
+    # find it and pick it up. Naka's Python is Naka's alone.
+    code, tail = _run([str(UV), "python", "install", "--no-registry", version],
+                      env=_uv_env(),
                       on_line=lambda line: ctx.progress(message=line[:120]))
     if code != 0:
         raise StepError("Python could not be installed:\n  " + "\n  ".join(tail[-6:]))
