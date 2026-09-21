@@ -29,6 +29,7 @@ from PIL import Image, ImageDraw
 
 from server import autostart, logsetup, paths, settings
 
+from . import theme
 from .supervisor import Server
 from .voice import Voice
 
@@ -95,6 +96,9 @@ def main() -> None:
     # the right command in it, and used by the tray menu's own toggle.
     os.environ["NAKA_LAUNCH"] = _launch_command()
 
+    # Before any menu exists: Windows decides a menu's theme when it is built.
+    theme.dark_menus()
+
     quitting = threading.Event()
     icon: pystray.Icon | None = None
     window = webview.create_window(
@@ -102,6 +106,9 @@ def main() -> None:
         html="<body style='background:#07080b;color:#9aa1b2;font:14px sans-serif;"
              "display:grid;place-items:center;height:100vh;margin:0'>Starting…</body>",
         width=1280, height=820, min_size=(900, 600), hidden=args.hidden,
+        # Painted before WebView2 has drawn anything, so opening the window
+        # does not flash white first.
+        background_color=theme.BACKGROUND,
     )
 
     def repaint(state: str) -> None:
@@ -118,6 +125,7 @@ def main() -> None:
     def show(*_):
         window.show()
         window.restore()
+        on_shown()
 
     def on_closing():
         # Closing the window is not quitting. The tray owns Naka's lifetime.
@@ -127,6 +135,18 @@ def main() -> None:
         return False
 
     window.events.closing += on_closing
+
+    def on_shown():
+        # The frame exists only once the window is shown. Recoloured so the
+        # caption bar is the panel's own background rather than a white strip.
+        hwnd = 0
+        try:
+            hwnd = int(window.native.Handle.ToInt64())
+        except Exception:  # pywebview's native object differs by backend
+            hwnd = theme.find_window(window.title)
+        theme.style_window(hwnd)
+
+    window.events.shown += on_shown
 
     # --- tray menu ------------------------------------------------------
 
