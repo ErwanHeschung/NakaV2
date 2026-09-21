@@ -289,6 +289,16 @@ class Field:
     options: list[str] = dataclass_field(default_factory=list)
 
 
+def _model_options() -> list[str]:
+    """The .gguf files in the models folder, plus the current model if it is
+    one the person pointed at elsewhere on their machine."""
+    options = sorted(p.name for p in paths.MODELS.glob("*.gguf"))
+    current = settings.LLM.get("model_file", "")
+    if current and current not in options:
+        options.append(current)
+    return options
+
+
 FIELDS: list[Field] = [
     Field("settings.client.push_to_talk_key", "Push to talk", "key", "Talking",
           "Hold this to speak. Named as the browser names it, so it follows "
@@ -336,7 +346,7 @@ FIELDS: list[Field] = [
     Field("settings.llm.model_file", "Model", "choice", "Language model",
           "Which model file to run. Switching takes effect the next time the "
           "language model starts.", applies="models",
-          options=sorted(p.name for p in paths.MODELS.glob("*.gguf"))),
+          options=_model_options()),
     Field("settings.llm.url", "Server", "text", "Language model",
           "Where llama.cpp is listening."),
     Field("settings.llm.temperature", "Temperature", "float", "Language model",

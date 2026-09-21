@@ -17,7 +17,29 @@ NAME = "Naka"
 KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 
 
+def default_command() -> str:
+    """What sign-in should run: this app, tray only.
+
+    Installed, that is Naka.exe. From a checkout it is naka.pyw under the
+    venv's pythonw, so no console window appears at sign-in either.
+    """
+    from pathlib import Path
+
+    from . import paths
+
+    if getattr(sys, "frozen", False):
+        return f'"{sys.executable}" --hidden'
+    pythonw = Path(sys.executable).with_name("pythonw.exe")
+    return f'"{pythonw}" "{paths.APP / "naka.pyw"}" --hidden'
+
+
 def command() -> str | None:
+    """The launch command, if we know it.
+
+    The tray sets NAKA_LAUNCH for the server it starts; a server run by hand
+    from a terminal has no business registering itself, so it gets None and
+    the panel does not offer the setting.
+    """
     return os.environ.get("NAKA_LAUNCH") if sys.platform == "win32" else None
 
 

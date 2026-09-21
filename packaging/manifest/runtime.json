@@ -1,0 +1,65 @@
+{
+  "schema": 1,
+  "_comment": "Everything setup downloads besides the language model, pinned by version and checksum. Take every sha256 from the publisher \u2014 GitHub's asset digest, Hugging Face's LFS metadata (api/models/<repo>/revision/<rev>?blobs=true) \u2014 never from a local cache: two pins here were once read off cache blob names and both were wrong.",
+  "uv": {
+    "version": "0.12.17",
+    "url": "https://github.com/astral-sh/uv/releases/download/0.12.17/uv-x86_64-pc-windows-msvc.zip",
+    "sha256": "a252121d5b59398fcb137c6ea448176459a44010f33f67e0072305a637119ca7",
+    "bytes": 17906210
+  },
+  "python": "3.12",
+  "llama": {
+    "_comment": "The CUDA 13.4 build, not 12.4: Blackwell cards (sm_120) arrived with CUDA 12.8, and the 12.4 build has no kernels for them.",
+    "build": "b11064",
+    "files": [
+      {
+        "url": "https://github.com/ggml-org/llama.cpp/releases/download/b11064/llama-b11064-bin-win-cuda-13.4-x64.zip",
+        "sha256": "91db29349e136b162c1fd374c4662f0d68c85e6e6f6839d55925c28d20981be9",
+        "bytes": 150540737
+      },
+      {
+        "url": "https://github.com/ggml-org/llama.cpp/releases/download/b11064/cudart-llama-bin-win-cuda-13.4-x64.zip",
+        "sha256": "738f8c251ac22b70c3ae6f83a10cf222725df0395246a2cf58f32bdb85fbe668",
+        "bytes": 423535356
+      }
+    ]
+  },
+  "speech": [
+    {
+      "_comment": "Whisper large-v3-turbo, CTranslate2 conversion. Pinned by commit; the one large file also by sha256.",
+      "repo": "mobiuslabsgmbh/faster-whisper-large-v3-turbo",
+      "revision": "0a363e9161cbc7ed1431c9597a8ceaf0c4f78fcf",
+      "allow": [
+        "config.json",
+        "model.bin",
+        "preprocessor_config.json",
+        "tokenizer.json",
+        "vocabulary.json"
+      ],
+      "verify": {
+        "model.bin": {
+          "sha256": "e76620f83d5f5b69efd3d87e3dc180c1bd21df9fbebacfd4335e5e1efcc018da",
+          "bytes": 1617884929
+        }
+      },
+      "bytes": 1622000000
+    },
+    {
+      "_comment": "Kokoro, with every voice pack: the panel accepts blends like af_heart:60,am_michael:40, and a voice missing at runtime would otherwise be fetched mid-sentence.",
+      "repo": "hexgrad/Kokoro-82M",
+      "revision": "f3ff3571791e39611d31c381e3a41a3af07b4987",
+      "allow": [
+        "config.json",
+        "kokoro-v1_0.pth",
+        "voices/*.pt"
+      ],
+      "verify": {
+        "kokoro-v1_0.pth": {
+          "sha256": "496dba118d1a58f5f3db2efc88dbdc216e0483fc89fe6e47ee1f2c53f18ad1e4",
+          "bytes": 327212226
+        }
+      },
+      "bytes": 356000000
+    }
+  ]
+}

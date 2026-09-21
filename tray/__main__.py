@@ -53,14 +53,6 @@ def _icon_image(state: str) -> Image.Image:
     return image
 
 
-def _launch_command() -> str:
-    """What the sign-in entry should run: this app, tray only."""
-    if getattr(sys, "frozen", False):
-        return f'"{sys.executable}" --hidden'
-    pythonw = Path(sys.executable).with_name("pythonw.exe")
-    return f'"{pythonw}" "{paths.APP / "naka.pyw"}" --hidden'
-
-
 def _single_instance() -> bool:
     """True if we are the only Naka. A second one asks the first to show itself."""
     if sys.platform != "win32":
@@ -94,7 +86,7 @@ def main() -> None:
 
     # Inherited by the server, so the panel can offer the sign-in toggle with
     # the right command in it, and used by the tray menu's own toggle.
-    os.environ["NAKA_LAUNCH"] = _launch_command()
+    os.environ["NAKA_LAUNCH"] = autostart.default_command()
 
     # Before any menu exists: Windows decides a menu's theme when it is built.
     theme.dark_menus()

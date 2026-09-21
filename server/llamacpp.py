@@ -23,6 +23,9 @@ BIN = paths.RUNTIME / "llama" / ("llama-server.exe" if sys.platform == "win32"
 
 
 def model_path() -> Path:
+    """The model to load. A bare name is in the models folder; a full path —
+    a file the person already had and chose with Browse — is used as it is.
+    Path's own join does this: an absolute right-hand side replaces the left."""
     return paths.MODELS / settings.LLM["model_file"]
 
 
@@ -54,5 +57,7 @@ def missing() -> str | None:
     if not BIN.exists():
         return f"llama-server is not installed ({BIN} is missing)"
     if not model_path().exists():
-        return f"the model file {model_path().name} is not in {paths.MODELS}"
+        # Said as a full path: a model chosen with Browse may have been moved
+        # or deleted since, and "not in the models folder" would mislead.
+        return f"the model file {model_path()} is missing"
     return None
