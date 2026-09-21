@@ -1,6 +1,0 @@
-# Windows-side client only. Install with the Windows Python, not inside WSL.
-av>=18.1.0
-httpx>=0.28.1
-numpy>=2.0
-pynput>=1.7
-sounddevice>=0.5

@@ -1,7 +1,7 @@
 """Push-to-talk client. Runs on Windows natively, not inside WSL.
 
-Mic capture in WSL is unreliable, so the client lives on the Windows side and
-talks to the server over localhost, which WSL2 forwards automatically.
+The tray app does the same thing without a console; this is the version for
+a terminal, and the one that takes the Opus reply rather than raw PCM.
 
 Hold the hotkey to speak, release to send. The reply is decoded and played as
 it arrives rather than after it completes.
@@ -9,28 +9,26 @@ it arrives rather than after it completes.
 Which key that is comes from the server, so the panel and this client cannot
 disagree about it. --key still overrides, for trying one out.
 
-    pip install -r client/requirements.txt
-    python client/ptt.py --url http://127.0.0.1:8000
+    uv run python client/ptt.py --url http://127.0.0.1:8000
 """
 
 import argparse
 import io
-import re
 import queue
 import sys
 import threading
 import time
-import wave
+from pathlib import Path
 
 import av
 import httpx
 import numpy as np
-import sounddevice as sd
 from pynput import keyboard
 
-CAPTURE_RATE = 16000
-PLAYBACK_RATE = 48000
-BLOCK = 1024
+# Runnable as `python client/ptt.py` as well as `python -m client.ptt`.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from client.audio import (CAPTURE_RATE, PLAYBACK_RATE, open_output,  # noqa: E402
+                          record, resolve_key, to_wav)
 
 
 class ResponseReader(io.RawIOBase):
@@ -70,39 +68,6 @@ class ResponseReader(io.RawIOBase):
         return take
 
 
-def resolve_key(code):
-    """A browser KeyboardEvent.code to something pynput will compare equal to.
-
-    The config is stored the browser's way because that spelling is specified
-    and pynput's is not, so the mapping lives on this side. Anything not named
-    here is assumed to be a character key, which covers letters and digits.
-    """
-    named = {
-        "ControlLeft": "ctrl_l", "ControlRight": "ctrl_r",
-        "AltLeft": "alt_l", "AltRight": "alt_gr",
-        "ShiftLeft": "shift_l", "ShiftRight": "shift_r",
-        "MetaLeft": "cmd_l", "MetaRight": "cmd_r",
-        "Space": "space", "Enter": "enter", "Tab": "tab",
-        "CapsLock": "caps_lock", "Escape": "esc", "Backspace": "backspace",
-        "Insert": "insert", "Home": "home", "End": "end",
-        "PageUp": "page_up", "PageDown": "page_down",
-        "ArrowUp": "up", "ArrowDown": "down",
-        "ArrowLeft": "left", "ArrowRight": "right",
-    }
-    if code in named:
-        return getattr(keyboard.Key, named[code])
-    if re.fullmatch(r"F\d{1,2}", code):
-        return getattr(keyboard.Key, code.lower())
-    if code.startswith("Key") and len(code) == 4:
-        return keyboard.KeyCode.from_char(code[3].lower())
-    if code.startswith("Digit") and len(code) == 6:
-        return keyboard.KeyCode.from_char(code[5])
-    # A pynput name straight from --key, for anything this does not cover.
-    if hasattr(keyboard.Key, code):
-        return getattr(keyboard.Key, code)
-    raise ValueError(f"do not know how to listen for {code!r}")
-
-
 def fetch_key(client, url, override):
     if override:
         return override
@@ -115,30 +80,6 @@ def fetch_key(client, url, override):
         print("could not read the key from the server, using ControlRight",
               file=sys.stderr)
         return "ControlRight"
-
-
-def record(held):
-    """Capture while `held` is set. Returns mono int16 at 16 kHz."""
-    frames = []
-    with sd.InputStream(samplerate=CAPTURE_RATE, channels=1, dtype="int16",
-                        blocksize=BLOCK) as stream:
-        while held.is_set():
-            block, _ = stream.read(BLOCK)
-            frames.append(block.copy())
-
-    if not frames:
-        return np.zeros(0, dtype=np.int16)
-    return np.concatenate(frames).reshape(-1)
-
-
-def to_wav(samples):
-    buffer = io.BytesIO()
-    with wave.open(buffer, "wb") as f:
-        f.setnchannels(1)
-        f.setsampwidth(2)
-        f.setframerate(CAPTURE_RATE)
-        f.writeframes(samples.tobytes())
-    return buffer.getvalue()
 
 
 def wake(client, url):
@@ -212,8 +153,8 @@ def main():
     args = ap.parse_args()
 
     # One client for the session, and a keepalive long enough to survive a
-    # pause in the conversation: reconnecting across the WSL2 boundary is the
-    # expensive part, and the default 5s expiry meant most replies paid it.
+    # pause in the conversation, so replies do not each pay for a new
+    # connection.
     client = httpx.Client(
         timeout=300.0,
         limits=httpx.Limits(max_keepalive_connections=4, keepalive_expiry=600.0),
@@ -238,11 +179,7 @@ def main():
         on_release=lambda key: held.clear() if key == hotkey else None,
     ).start()
 
-    # Opened once and held: opening a WASAPI device costs hundreds of
-    # milliseconds, which would land squarely in the time-to-first-sound path.
-    out = sd.OutputStream(samplerate=PLAYBACK_RATE, channels=1,
-                          dtype="float32", latency="low")
-    out.start()
+    out = open_output()
 
     print(f"hold {key_code} to talk, ctrl-c to quit")
     try:

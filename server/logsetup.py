@@ -26,12 +26,13 @@ MAX_BYTES = 8_000_000
 BACKUPS = 5
 
 
-def configure(max_bytes: int = MAX_BYTES, backups: int = BACKUPS) -> RotatingFileHandler:
+def configure(name: str = "naka.log", max_bytes: int = MAX_BYTES,
+              backups: int = BACKUPS) -> RotatingFileHandler:
     paths.LOGS.mkdir(parents=True, exist_ok=True)
     formatter = logging.Formatter(FORMAT, DATEFMT)
 
     file_handler = RotatingFileHandler(
-        paths.LOGS / "naka.log", maxBytes=max_bytes, backupCount=backups,
+        paths.LOGS / name, maxBytes=max_bytes, backupCount=backups,
         encoding="utf-8",
         # Not opened until the first line is written, so importing the server
         # to look at something does not create an empty log.

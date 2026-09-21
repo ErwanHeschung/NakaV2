@@ -5,17 +5,28 @@ at the `legacy-wsl-docker` tag and is no longer maintained.
 
 ## Day to day
 
-From the repo, in PowerShell:
+Double-click `naka.pyw`, or from the repo:
+
+```powershell
+uv sync --group tray
+uv run python -m tray
+```
+
+That is the whole app: a tray icon, the panel in its own window, and the
+push-to-talk key (right Ctrl by default) held for the whole machine, so it
+works whatever is in front. It starts the server itself and stops it on Quit.
+Closing the window leaves Naka in the tray. "Start with Windows" is in the
+tray menu and in Settings.
+
+The server alone, for working on it, is still:
 
 ```powershell
 uv run uvicorn server.main:app --host 127.0.0.1 --port 8000
 ```
 
-The server starts `llama-server.exe` itself the first time something needs the
-language model, and stops it again when idle. The panel is at
-<http://127.0.0.1:8000/ui/>. Hold the push-to-talk key (right Ctrl by default)
-with the panel focused, or run `uv run python client/ptt.py` to talk from
-anywhere.
+If a server is already answering on the port, the tray uses it rather than
+starting its own. `uv run python client/ptt.py` is push-to-talk from a
+terminal, with no window.
 
 Always `127.0.0.1`, never `localhost`: on Windows the name resolves to `::1`
 first, and against an IPv4-only server every new connection stalls on that

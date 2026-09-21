@@ -20,7 +20,7 @@ import tomlkit
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from . import events, paths, settings
+from . import autostart, events, paths, settings
 from .memory import memory
 from .tools import builtin
 from .tools.builtin import validate_fact
@@ -48,6 +48,31 @@ async def client_config():
         # client says, and both of these now say yes.
         "agentic": settings.CLIENT["use_tools"],
     }
+
+
+class ClientStateIn(BaseModel):
+    state: str
+
+
+@router.post("/client/state")
+async def client_state(body: ClientStateIn):
+    """The tray's push-to-talk state, relayed to any open panel.
+
+    The tray owns the hotkey and the microphone, so without this the panel's
+    orb would sit still while someone was plainly talking to it — the window
+    and the key would feel like two different apps.
+    """
+    if body.state not in ("ready", "listening", "thinking", "speaking", "off"):
+        raise HTTPException(status_code=400, detail="unknown state")
+    events.publish("client", state=body.state)
+    return {"ok": True}
+
+
+@router.post("/client/show")
+async def client_show():
+    """Ask the tray to bring its window forward. A second launch uses this."""
+    events.publish("client", show=True)
+    return {"ok": True}
 
 
 # ------------------------------------------------------------------- notes
@@ -268,6 +293,10 @@ FIELDS: list[Field] = [
     Field("settings.client.push_to_talk_key", "Push to talk", "key", "Talking",
           "Hold this to speak. Named as the browser names it, so it follows "
           "the physical key rather than the character it types."),
+    *([Field("app.autostart", "Start Naka when you sign in", "bool", "Talking",
+             "Puts Naka in the tray at sign-in, with push-to-talk ready. The "
+             "speech and language models stay off the graphics card until "
+             "you first speak.")] if autostart.available() else []),
     Field("settings.client.use_tools", "Let her use her tools", "bool",
           "Talking",
           "Timers, notes, the clock, GPU status. Costs about 600ms a reply, "
@@ -360,13 +389,26 @@ def _split(key: str) -> tuple[Path, list[str]]:
 
 
 def _current(key: str):
+    """The value in effect: the person's file if it says, else the shipped one.
+
+    Reading only the person's file showed any key it did not mention as empty
+    in the panel — including every setting added after it was first written,
+    which the server was meanwhile happily using from the shipped defaults.
+    """
+    if key == "app.autostart":
+        return autostart.enabled()
     path, parts = _split(key)
-    node = tomlkit.parse(path.read_text(encoding="utf-8"))
-    for part in parts:
-        if part not in node:
-            return None
-        node = node[part]
-    return node.unwrap() if hasattr(node, "unwrap") else node
+    for source in (path, paths.DEFAULTS / path.name):
+        if not source.exists():
+            continue
+        node = tomlkit.parse(source.read_text(encoding="utf-8"))
+        for part in parts:
+            if part not in node:
+                break
+            node = node[part]
+        else:
+            return node.unwrap() if hasattr(node, "unwrap") else node
+    return None
 
 
 def _coerce(f: Field, value):
@@ -441,10 +483,14 @@ async def settings_write(body: SettingsIn):
         raise HTTPException(status_code=400, detail="nothing to change")
 
     planned: dict[Path, list[tuple[list[str], object]]] = {}
+    app_changes: dict[str, object] = {}
     for key, value in body.changes.items():
         f = BY_KEY.get(key)
         if f is None:
             raise HTTPException(status_code=400, detail=f"unknown setting {key!r}")
+        if key.startswith("app."):
+            app_changes[key] = _coerce(f, value)
+            continue
         path, parts = _split(key)
         planned.setdefault(path, []).append((parts, _coerce(f, value)))
 
@@ -463,6 +509,9 @@ async def settings_write(body: SettingsIn):
         tmp.write_text(tomlkit.dumps(doc), encoding="utf-8")
         tmp.replace(path)
         log.info("saved %d setting(s) to %s", len(edits), path.name)
+
+    if "app.autostart" in app_changes:
+        autostart.set_enabled(bool(app_changes["app.autostart"]))
 
     settings.reload()
     # The persona is a template filled from identity, so a name change only

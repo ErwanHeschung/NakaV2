@@ -61,6 +61,28 @@ const orb = new Orb(orbCanvas);
 
 /* -------------------------------------------------------- push to talk */
 
+/**
+ * Inside the tray's window, the tray owns the microphone and the key.
+ *
+ * Arming here as well would record every utterance twice, and WebView2 asks
+ * permission for the microphone in a way the host may never answer. So the
+ * panel only shows what the tray is doing, relayed as 'client' events.
+ */
+const TALK_STATES: readonly string[] = [
+  'off',
+  'ready',
+  'listening',
+  'thinking',
+  'speaking',
+];
+
+function isTalkState(value: string): value is TalkState {
+  return TALK_STATES.includes(value);
+}
+
+const embedded = new URLSearchParams(globalThis.location.search).has('embedded');
+let trayKey = '';
+
 // What the panel is doing outranks what the server reports: while a turn is
 // in flight the orb should follow this conversation, not the poll.
 let talkState: TalkState = 'off';
@@ -85,6 +107,14 @@ const talk = new Talk({
 });
 
 function paintTalk(): void {
+  if (embedded) {
+    // style, not the hidden attribute: .icon-btn sets display, which wins.
+    micButton.style.display = 'none';
+    talkHint.textContent = trayKey
+      ? `hold ${keyName(trayKey)} to talk, from anywhere`
+      : '';
+    return;
+  }
   micButton.classList.toggle('active', talk.armed);
   micButton.classList.toggle('recording', talkState === 'listening');
   talkHint.textContent = talk.armed
@@ -96,11 +126,26 @@ function paintTalk(): void {
 // Deliberately not awaited at the top level: this can sit on a microphone
 // permission prompt, and the status polling below must not wait for the user
 // to answer it.
-// oxlint-disable-next-line unicorn/prefer-top-level-await
-void talk.start().then(paintTalk).catch(paintTalk);
-onSettingsSaved(() => {
-  void talk.refresh();
-});
+function readTrayKey(): void {
+  void api
+    .clientConfig()
+    .then((config) => {
+      trayKey = config.push_to_talk_key;
+      paintTalk();
+    })
+    .catch(() => null);
+}
+
+if (embedded) {
+  readTrayKey();
+  onSettingsSaved(readTrayKey);
+} else {
+  // oxlint-disable-next-line unicorn/prefer-top-level-await
+  void talk.start().then(paintTalk).catch(paintTalk);
+  onSettingsSaved(() => {
+    void talk.refresh();
+  });
+}
 
 /* -------------------------------------------------------------- ringing */
 
@@ -156,6 +201,11 @@ listen({
     if (openSection?.topic === event.topic) refreshOpenSection();
     if (event.topic === 'conversation') void api.memory().then(renderConversation);
     if (event.topic === 'notes' || event.topic === 'timers') void refreshCounts();
+    if (event.topic === 'client' && event.state !== undefined && embedded) {
+      if (isTalkState(event.state)) talkState = event.state;
+      paintTalk();
+    }
+    if (event.topic === 'settings' && embedded) readTrayKey();
   },
   onConnection: (live) => {
     // Only worth saying when it is not: a panel that cannot be reached will

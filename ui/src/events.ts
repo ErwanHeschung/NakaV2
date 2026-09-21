@@ -13,13 +13,18 @@
  * most of what a hand-written socket client ends up being.
  */
 
-export type Topic = 'notes' | 'timers' | 'memory' | 'conversation' | 'settings';
+export type Topic =
+  'notes' | 'timers' | 'memory' | 'conversation' | 'settings' | 'client';
 
 export interface ServerEvent {
   topic: Topic;
   /** Only on a timer that has come due. */
   rang?: string;
   at?: number;
+  /** Only on 'client': what the tray's push-to-talk is doing. */
+  state?: string;
+  /** Only on 'client': the tray asking its window to come forward. */
+  show?: boolean;
 }
 
 interface Handlers {
