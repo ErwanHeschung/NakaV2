@@ -20,7 +20,7 @@ import tomlkit
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from . import events, settings
+from . import events, paths, settings
 from .memory import memory
 from .tools import builtin
 from .tools.builtin import validate_fact
@@ -304,6 +304,10 @@ FIELDS: list[Field] = [
     Field("voice.dsp.crusher.enabled", "Bit crusher", "bool", "Voice",
           "The fastest way to sound cheap rather than synthetic. Usually off."),
 
+    Field("settings.llm.model_file", "Model", "choice", "Language model",
+          "Which model file to run. Switching takes effect the next time the "
+          "language model starts.", applies="models",
+          options=sorted(p.name for p in paths.MODELS.glob("*.gguf"))),
     Field("settings.llm.url", "Server", "text", "Language model",
           "Where llama.cpp is listening."),
     Field("settings.llm.temperature", "Temperature", "float", "Language model",

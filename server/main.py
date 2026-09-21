@@ -92,8 +92,17 @@ async def lifespan(app: FastAPI):
     # Publishing is safe from any thread once this is set, which matters
     # because tools run in a worker.
     events.bind(asyncio.get_running_loop())
-    models.load()
-    models.warmup()
+    # A failure here used to take the whole server down at startup with a
+    # traceback — in an app with no console, a server that silently never
+    # comes up. It now starts degraded instead, so /health and the panel can
+    # say what is wrong: most often, no usable CUDA device.
+    try:
+        models.load()
+        models.warmup()
+        models.load_error = None
+    except Exception as e:
+        models.load_error = f"{type(e).__name__}: {e}"
+        log.exception("speech models failed to load; starting degraded")
     watcher = asyncio.create_task(ops.idle_watcher())
     pruning = asyncio.create_task(logprune.pruner())
     ringing = asyncio.create_task(timer_watcher())
@@ -103,6 +112,7 @@ async def lifespan(app: FastAPI):
     pruning.cancel()
     ringing.cancel()
     await llm.aclose()
+    await ops.shutdown()
     models.unload()
 
 
@@ -195,8 +205,9 @@ async def events_stream():
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "stt": models.stt is not None,
-            "tts": models.tts is not None}
+    return {"status": "ok" if models.load_error is None else "degraded",
+            "stt": models.stt is not None, "tts": models.tts is not None,
+            "error": models.load_error}
 
 
 @app.post("/stt")
@@ -346,7 +357,10 @@ async def ops_wake():
     overlaps with the user speaking instead of following it.
     """
     ops.touch()
-    if models.stt is not None and models.tts is not None:
+    # All three, not just the speech models: checking only those meant a key
+    # press after the language model had been stopped on its own answered
+    # "already awake" and left the reload to land in the reply's latency.
+    if ops._fully_up():
         return {"status": "already awake"}
     spawn(ops.ensure_loaded())
     return {"status": "waking"}

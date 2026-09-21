@@ -6,7 +6,6 @@ of the filesystem however the model phrases its arguments.
 """
 
 import re
-import subprocess
 import threading
 import time
 from datetime import datetime
@@ -45,12 +44,14 @@ def get_time():
     parameters={},
 )
 def gpu_status():
-    result = subprocess.run(
-        ["nvidia-smi", "--query-gpu=memory.used,memory.total",
-         "--format=csv,noheader,nounits"],
-        capture_output=True, text=True, timeout=10,
-    )
-    used, total = (int(x) for x in result.stdout.strip().split(","))
+    # The same reader /ops/status uses. This used to shell out to nvidia-smi
+    # itself with no check on the result, so a missing binary raised inside
+    # the agent loop, mid-reply.
+    from ..ops import _vram
+
+    used, total = _vram()
+    if not total:
+        return "I can't read the graphics card right now."
     return (f"{used / 1024:.1f} GB of {total / 1024:.1f} GB in use, "
             f"{(total - used) / 1024:.1f} GB free.")
 

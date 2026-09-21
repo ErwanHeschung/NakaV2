@@ -26,6 +26,8 @@ gpu_lock = asyncio.Lock()
 
 stt: WhisperModel | None = None
 tts: KPipeline | None = None
+# Why load() last failed, if it did, so the server can say so instead of dying.
+load_error: str | None = None
 
 
 def load() -> None:

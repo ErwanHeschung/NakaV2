@@ -33,6 +33,12 @@ port = 8000
 [llm]
 # llama-server.exe, started and stopped by server/ops.py as needed.
 url = "http://127.0.0.1:8080"
+# Which GGUF in the models folder to load. Takes effect the next time the
+# language model starts, which the idle unload makes frequent.
+model_file = "gemma-4-12b-it-qat-q4_0.gguf"
+# Tokens of context. Persona, facts, summary, the recent turns and every tool
+# schema all have to fit, so this is not free to shrink.
+ctx_size = 8192
 temperature = 0.0
 max_tokens = 256
 # Both Gemma 4 and Qwen3 emit reasoning tokens by default. They never reach the
