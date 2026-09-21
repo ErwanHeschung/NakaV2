@@ -6,6 +6,12 @@ asked. Closing the window leaves Naka running; Quit in the tray menu stops it.
 
     python -m tray            # from a checkout, window shown
     python -m tray --hidden   # what sign-in runs: tray icon only
+    python -m tray --setup    # the first-run wizard, then the tray
+
+Installed, a setup that has not finished opens the wizard instead of the tray,
+wherever it was launched from — it carries on from the step that stopped. From
+a checkout it never does: the checkout is set up by hand, and its data folder
+has no setup state to consult.
 
 Threading, which Windows is particular about: webview must own the main thread,
 because it pumps the Win32 message loop, and so would pystray's icon. The
@@ -69,7 +75,13 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--hidden", action="store_true",
                         help="start in the tray without showing the window")
+    parser.add_argument("--setup", action="store_true",
+                        help="run the first-run wizard, then start in the tray")
     args = parser.parse_args()
+
+    if args.setup or (getattr(sys, "frozen", False) and not _setup_complete()):
+        _run_setup()
+        return
 
     logsetup.configure("tray.log")
     # A line per request otherwise, and the tray reports every state change.
@@ -214,6 +226,36 @@ def main() -> None:
     voice.stop()
     server.stop()
     icon.stop()
+
+
+def _setup_complete() -> bool:
+    from setup import state
+
+    return state.complete(state.load())
+
+
+def _run_setup() -> None:
+    """The wizard, then the tray in a process of its own.
+
+    Its own process rather than carrying on in this one: pywebview does not
+    promise a second webview.start() after the first has returned, and a
+    fresh start is what sign-in will do from now on anyway.
+    """
+    import ctypes
+    import subprocess
+
+    from setup.wizard import run_window
+
+    logsetup.configure("setup.log")
+    if sys.platform == "win32":
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        _run_setup.handle = kernel32.CreateMutexW(None, False, "Local\\NakaSetup")
+        if ctypes.get_last_error() == 183:  # already open; that one will do
+            return
+    if run_window():
+        command = autostart.default_command().removesuffix(" --hidden")
+        subprocess.Popen(command, close_fds=True,
+                         creationflags=getattr(subprocess, "DETACHED_PROCESS", 0))
 
 
 def _quiet_post(url: str) -> None:

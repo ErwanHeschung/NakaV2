@@ -5,6 +5,7 @@ r"""Run setup from a terminal. The wizard window does the same thing with a UI.
     python -m setup --model "D:\Models\my-model.gguf"       # one you already have
     python -m setup --redo-from model --model qwen3-14b    # switch models
     python -m setup --check                                # the GPU gate only
+    python -m setup --ui                                   # the wizard window
 
 Choices are remembered in state.json, so a rerun after an interruption needs
 no arguments at all and carries on from the step that did not finish.
@@ -51,7 +52,12 @@ def main() -> int:
     parser.add_argument("--autostart", action=argparse.BooleanOptionalAction)
     parser.add_argument("--redo-from", choices=[s.id for s in STEPS])
     parser.add_argument("--check", action="store_true", help="the GPU gate only")
+    parser.add_argument("--ui", action="store_true", help="the wizard window")
     args = parser.parse_args()
+
+    if args.ui:
+        from .wizard import run_window
+        return 0 if run_window() else 1
 
     models = load_models()
     if args.check:

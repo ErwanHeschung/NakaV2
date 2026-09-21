@@ -405,6 +405,9 @@ def step_configure(ctx: Context) -> str:
         if identity.get(key):
             doc.setdefault("identity", tomlkit.table())[key] = identity[key]
     doc.setdefault("llm", tomlkit.table())["model_file"] = model["file"]
+    if ctx.choices.get("push_to_talk_key"):
+        doc.setdefault("client", tomlkit.table())["push_to_talk_key"] = \
+            ctx.choices["push_to_talk_key"]
     tmp = target.with_suffix(".toml.tmp")
     tmp.write_text(tomlkit.dumps(doc), encoding="utf-8")
     tmp.replace(target)

@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <title>Naka — setup</title>
+    <link rel="stylesheet" href="./style.css" />
+    <link rel="stylesheet" href="./setup.css" />
+    <!--
+      The same import map as the panel: the wizard shares its icons, controls
+      and orb, so it reads as part of Naka rather than as an installer.
+    -->
+    <script type="importmap">
+      { "imports": { "lucide": "./vendor/lucide/index.mjs" } }
+    </script>
+  </head>
+  <body>
+    <div class="ambient"></div>
+    <main class="wizard" id="wizard"></main>
+    <script type="module" src="./js/setup.js"></script>
+  </body>
+</html>

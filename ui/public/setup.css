@@ -1,0 +1,266 @@
+/*
+ * The first-run wizard. Layered on style.css, so every colour, font and
+ * control is the panel's own; this file only lays out the one column the
+ * wizard needs — the orb above, a single card below.
+ */
+
+body {
+  overflow-y: auto;
+}
+
+.wizard {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 20px 16px 28px;
+  gap: 18px;
+}
+
+.wizard-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 6px;
+}
+
+canvas.orb.wizard-orb {
+  width: 150px;
+  height: 150px;
+}
+
+.wizard-title {
+  margin: 0;
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.wizard-lede {
+  margin: 0;
+  max-width: 520px;
+  color: var(--ink-dim);
+  font-size: 14px;
+}
+
+.wizard-card {
+  width: min(640px, 100%);
+}
+
+.wizard-body {
+  padding: 20px 22px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.wizard-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 22px;
+  border-top: 1px solid var(--line-soft);
+}
+
+button.btn.primary {
+  color: #fff;
+  border-color: rgba(124, 92, 255, 0.6);
+  background: linear-gradient(
+    180deg,
+    rgba(124, 92, 255, 0.55),
+    rgba(92, 64, 220, 0.55)
+  );
+}
+
+button.btn.primary:hover:not(:disabled) {
+  color: #fff;
+  border-color: rgba(150, 125, 255, 0.8);
+  background: linear-gradient(
+    180deg,
+    rgba(124, 92, 255, 0.75),
+    rgba(92, 64, 220, 0.75)
+  );
+}
+
+/* ---------------------------------------------------------------- check */
+
+.fact-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.fact-card > div {
+  flex: 1;
+}
+
+.fact-card .ok-mark {
+  color: var(--good);
+}
+
+/* ---------------------------------------------------------------- about */
+
+.form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 16px;
+}
+
+/* ---------------------------------------------------------------- model */
+
+.model-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.model-card {
+  font: inherit;
+  color: var(--ink);
+  text-align: left;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.02);
+  cursor: pointer;
+  transition:
+    border-color 0.15s,
+    background 0.15s;
+}
+
+button.model-card:hover:not(:disabled) {
+  border-color: #33394c;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.model-card.selected {
+  border-color: rgba(124, 92, 255, 0.7);
+  background: rgba(124, 92, 255, 0.1);
+}
+
+.model-card.disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.link-card {
+  cursor: default;
+}
+
+.link-card .row .input {
+  flex: 1;
+}
+
+/* -------------------------------------------------------------- install */
+
+.step-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.step {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 2px;
+  font-size: 13px;
+  color: var(--ink-faint);
+}
+
+.step .step-title {
+  flex: none;
+}
+
+.step .step-detail {
+  margin-left: auto;
+  font-size: 11.5px;
+  text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 50%;
+}
+
+.step.running {
+  color: var(--ink);
+}
+
+.step.running svg {
+  color: var(--accent);
+  animation: spin 1s linear infinite;
+}
+
+.step.ok,
+.step.skipped {
+  color: var(--ink-dim);
+}
+
+.step.ok svg,
+.step.skipped svg {
+  color: var(--good);
+}
+
+.step.failed {
+  color: var(--bad);
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .step.running svg {
+    animation: none;
+  }
+}
+
+.progress-line {
+  min-height: 18px;
+  font-variant-numeric: tabular-nums;
+}
+
+.pre {
+  white-space: pre-wrap;
+}
+
+.wizard-actions {
+  margin-top: 10px;
+}
+
+/* ------------------------------------------------------------- compact */
+
+.wizard.compact canvas.orb.wizard-orb {
+  width: 110px;
+  height: 110px;
+}
+
+.wizard.compact .step {
+  padding: 3px 2px;
+}
+
+.wizard-footer[hidden] {
+  display: none;
+}
+
+.wizard.compact {
+  padding-top: 16px;
+}
+
+.wizard-body [hidden] {
+  display: none;
+}
