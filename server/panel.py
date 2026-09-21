@@ -341,8 +341,10 @@ FIELDS: list[Field] = [
           "It holds most of the VRAM, so leaving it running defeats the point."),
 
     Field("settings.logs.retention_days", "Keep logs for", "int", "Logs",
-          "Days. This also bounds how far back the record of tool calls goes. "
-          "0 keeps everything.", minimum=0, maximum=365),
+          "Days of conversation and tool-call records to keep. This also "
+          "bounds how far back the record of tool calls goes. 0 keeps "
+          "everything. The text log rotates by size and is not affected.",
+          minimum=0, maximum=365),
 ]
 
 BY_KEY = {f.key: f for f in FIELDS}

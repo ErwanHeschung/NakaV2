@@ -75,8 +75,9 @@ idle_unload_minutes = 1
 idle_unload_llm = true
 
 [logs]
-# Days of history to keep. Applies to naka.log, turns.jsonl and audit.jsonl
-# alike; anything older is dropped hourly. 0 keeps everything forever.
+# Days of history to keep in turns.jsonl and audit.jsonl; anything older is
+# dropped hourly. 0 keeps everything forever. naka.log is rotated by size
+# instead — five files of 8 MB — and is not affected by this.
 #
 # Note that audit.jsonl is the record of every tool call made on this machine,
 # so shortening this shortens how far back that can be checked.

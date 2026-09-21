@@ -14,7 +14,8 @@ from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import agent, events, llm, logprune, models, ops, panel, paths, settings, stt, tts, turnlog
+from . import (agent, events, llm, logprune, logsetup, models, ops, panel, paths,
+               settings, stt, tts, turnlog)
 from .memory import memory
 from .tools import builtin
 from .tools.registry import AGENT, available
@@ -59,11 +60,7 @@ WOKE_NOTE = (
     "not mention it twice."
 )
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(name)-12s %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-)
+logsetup.configure()
 log = logging.getLogger("naka")
 
 
