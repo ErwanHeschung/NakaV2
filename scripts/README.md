@@ -98,6 +98,17 @@ server's source, the panel, the default config and the manifests beside
 `Naka.exe`. It stops if the result is over 150 MB, which only happens when
 something heavy got bundled.
 
+On a machine that already has the runtime — this one — there is no need to
+download it again to try the installed app:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\dev_setup_state.py --venv .venv
+```
+
+It links `runtime\venv` in the data folder to the checkout's and writes the
+state file setup would have written, so `Naka.exe` starts in the tray. A real
+install runs the real steps.
+
 Run as built, `Naka.exe` opens the setup wizard until setup has finished, then
 the tray. `NAKA_DATA_DIR` points it at another data folder for testing, and
 `NAKA_PYTHON` at an existing venv instead of the one setup installs.
