@@ -50,6 +50,8 @@ a = Analysis(
 )
 pyz = PYZ(a.pure)
 
+ICON = ROOT / "build" / "wizard" / "naka.ico"
+
 exe = EXE(
     pyz,
     a.scripts,
@@ -57,6 +59,9 @@ exe = EXE(
     exclude_binaries=True,
     name="Naka",
     console=False,
+    # Drawn by packaging/assets.py before the freeze; the window, the taskbar
+    # and the installer all take theirs from here.
+    icon=str(ICON) if ICON.exists() else None,
     # UPX-packed executables are another classic antivirus trigger, for a
     # few megabytes saved.
     upx=False,

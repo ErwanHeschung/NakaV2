@@ -46,9 +46,14 @@ def main() -> int:
                         help="a Python environment with the server's packages")
     args = parser.parse_args()
 
-    venv = Path(args.venv).resolve()
-    if not (venv / "Scripts" / "python.exe").exists():
-        sys.exit(f"{venv} is not a Windows virtual environment")
+    # A runtime venv already in the data folder — one a real setup built, or
+    # one restored there — is used as it is; nothing to link.
+    if (steps.VENV / "Scripts" / "python.exe").exists():
+        venv = steps.VENV
+    else:
+        venv = Path(args.venv).resolve()
+        if not (venv / "Scripts" / "python.exe").exists():
+            sys.exit(f"{venv} is not a Windows virtual environment")
 
     missing = [str(p) for p in (
         steps.LLAMA / "llama-server.exe",
@@ -58,7 +63,7 @@ def main() -> int:
     if missing:
         sys.exit("not in the data folder yet: " + ", ".join(missing))
 
-    if steps.VENV.resolve() != venv:
+    if steps.VENV != venv:
         link(steps.VENV, venv)
 
     state = st.load()

@@ -112,3 +112,15 @@ install runs the real steps.
 Run as built, `Naka.exe` opens the setup wizard until setup has finished, then
 the tray. `NAKA_DATA_DIR` points it at another data folder for testing, and
 `NAKA_PYTHON` at an existing venv instead of the one setup installs.
+
+## The installer
+
+`packaging/build.py` compiles it at the end, when Inno Setup 7 is installed
+(`build\Naka-setup-<version>.exe`, about 28 MB). It installs per user into
+`%LOCALAPPDATA%\Programs\Naka` with no administrator prompt, offers two boxes
+— start with Windows, run setup now — and installs the WebView2 runtime only
+if the machine has none.
+
+Uninstalling removes the program and asks, once, whether to delete
+`%LOCALAPPDATA%\Naka` as well: the models, settings and history, about 15 GB.
+The default is No. Answering Yes cannot be undone.
