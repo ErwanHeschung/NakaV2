@@ -7,6 +7,7 @@ ui/.nvmrc) and uv on PATH. The result is build\dist\Naka, which the installer
 packs as it is:
 
     Naka.exe, _internal\     the frozen tray (and the setup wizard)
+    THIRD-PARTY-NOTICES.md   what Naka is built on, and under which licences
     server\ setup\ client\   source the runtime venv's Python runs
     ui\public\               the built panel and wizard
     config\                  shipped defaults, copied to the data folder once
@@ -52,7 +53,8 @@ MAX_MB = 150
 # stay behind; client is here because the tray imports client.audio, and the
 # server does not, but it costs nothing and keeps `python -m client.ptt` working.
 TREES = ("server", "setup", "client", "config")
-FILES = ("pyproject.toml", "uv.lock", "eval/check_gpu.py")
+FILES = ("pyproject.toml", "uv.lock", "eval/check_gpu.py",
+         "THIRD-PARTY-NOTICES.md")
 
 
 def run(argv: list[str], **kwargs) -> None:

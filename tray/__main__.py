@@ -31,32 +31,25 @@ from pathlib import Path
 import httpx
 import pystray
 import webview
-from PIL import Image, ImageDraw
+from PIL import Image
 
 from server import autostart, logsetup, paths, settings
 
-from . import theme
+from . import orb, theme
 from .supervisor import Server
 from .voice import Voice
 
 log = logging.getLogger("naka.tray")
 
-# Colour is state, as in the panel: grey is resting, anything coloured is live.
-_COLOURS = {
-    "starting": (74, 81, 98), "restarting": (74, 81, 98),
-    "ready": (124, 92, 255), "attached": (124, 92, 255),
-    "listening": (255, 107, 107), "thinking": (240, 136, 62),
-    "speaking": (77, 159, 255), "failed": (60, 60, 60), "stopped": (60, 60, 60),
-}
-
-
 def _icon_image(state: str) -> Image.Image:
-    image = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(image)
-    draw.ellipse((6, 6, 58, 58), fill=_COLOURS.get(state, (74, 81, 98)))
-    if state == "failed":
-        draw.ellipse((40, 40, 60, 60), fill=(255, 80, 80))
-    return image
+    """Cached: pystray asks for the icon on every state change, and drawing a
+    sphere four times oversampled is not free at that rate."""
+    if state not in _ICONS:
+        _ICONS[state] = orb.for_state(state)
+    return _ICONS[state]
+
+
+_ICONS: dict[str, Image.Image] = {}
 
 
 def _single_instance() -> bool:

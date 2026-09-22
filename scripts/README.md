@@ -18,6 +18,11 @@ works whatever is in front. It starts the server itself and stops it on Quit.
 Closing the window leaves Naka in the tray. "Start with Windows" is in the
 tray menu and in Settings.
 
+`scripts\naka.ps1` does the same from a terminal — `start`, `stop`, `status`,
+`unload`, `load`, `panel`, `logs`. Windows refuses unsigned scripts until you
+allow your own (`Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`), or
+run it as `powershell -ExecutionPolicy Bypass -File scripts\naka.ps1 status`.
+
 The server alone, for working on it, is still:
 
 ```powershell
@@ -124,3 +129,15 @@ if the machine has none.
 Uninstalling removes the program and asks, once, whether to delete
 `%LOCALAPPDATA%\Naka` as well: the models, settings and history, about 15 GB.
 The default is No. Answering Yes cannot be undone.
+
+## Licences
+
+`THIRD-PARTY-NOTICES.md` lists everything Naka is built on, and ships beside
+`Naka.exe`. Regenerate it after changing dependencies:
+
+```powershell
+uv run python packaging\notices.py
+```
+
+It reads the packages actually installed, and carries the models' own terms —
+Gemma's in particular are worth reading before shipping anything built on it.
