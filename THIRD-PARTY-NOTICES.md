@@ -52,11 +52,14 @@ list once said.
 | cloudpickle | 3.1.2 | BSD License |
 | colorama | 0.4.6 | BSD License |
 | confection | 1.3.3 | MIT License |
+| courlan | 1.4.0 | Apache-2.0 |
 | csvw | 4.1.0 | Apache Software License |
 | ctranslate2 | 4.8.2 | MIT |
 | curated_tokenizers | 0.0.10 | MIT License |
 | curated_transformers | 0.1.1 | MIT |
 | cymem | 2.0.13 | MIT License |
+| dateparser | 1.4.3 | BSD-3-Clause |
+| ddgs | 9.16.0 | MIT |
 | dlinfo | 2.0.0 | MIT |
 | docopt | 0.6.2 | MIT License |
 | en_core_web_sm | 3.8.0 | MIT |
@@ -68,6 +71,7 @@ list once said.
 | fsspec | 2026.9.0 | BSD-3-Clause |
 | h11 | 0.16.0 | MIT License |
 | hf_xet | 1.6.0 | Apache-2.0 |
+| htmldate | 1.10.0 | Apache-2.0 |
 | httpcore | 1.0.9 | BSD-3-Clause |
 | httpx | 0.28.1 | BSD License |
 | huggingface_hub | 1.32.0 | Apache Software License |
@@ -77,9 +81,12 @@ list once said.
 | joblib | 1.6.0 | BSD-3-Clause |
 | jsonschema | 4.26.0 | MIT |
 | jsonschema_specifications | 2025.9.1 | MIT |
+| justext | 3.0.2 | BSD License |
 | kokoro | 0.9.4 | Apache Software License |
 | language_tags | 1.3.1 | MIT |
 | loguru | 0.7.3 | MIT License |
+| lxml | 6.1.3 | BSD-3-Clause |
+| lxml_html_clean | 0.4.5 | BSD-3-Clause |
 | markdown_it_py | 4.2.0 | MIT License |
 | markupsafe | 3.0.3 | BSD-3-Clause |
 | mdurl | 0.1.2 | MIT License |
@@ -93,6 +100,7 @@ list once said.
 | packaging | 26.3 | Apache-2.0 OR BSD-2-Clause |
 | phonemizer_fork | 3.3.2 | GNU General Public License v3 or later (GPLv3+) |
 | preshed | 3.0.13 | MIT License |
+| primp | 2.0.1 | MIT License |
 | protobuf | 7.36.2 | 3-Clause BSD License |
 | pydantic | 2.13.5 | MIT |
 | pydantic_core | 2.46.5 | MIT |
@@ -100,6 +108,7 @@ list once said.
 | pyparsing | 3.3.2 | MIT |
 | python_dateutil | 2.9.0.post0 | BSD License, Apache Software License |
 | python_multipart | 0.0.32 | Apache-2.0 |
+| pytz | 2026.3.post1 | MIT License |
 | pyyaml | 6.0.3 | MIT License |
 | rdflib | 7.6.0 | BSD License |
 | referencing | 0.37.0 | MIT |
@@ -123,16 +132,20 @@ list once said.
 | sympy | 1.14.0 | BSD License |
 | termcolor | 3.3.0 | MIT |
 | thinc | 8.3.13 | MIT License |
+| tld | 0.13.2 | MPL-1.1 OR GPL-2.0-only OR LGPL-2.1-or-later |
 | tokenizers | 0.22.2 | Apache Software License |
 | tomlkit | 0.15.1 | MIT License |
 | torch | 2.11.0+cu128 | BSD-3-Clause |
 | torchaudio | 2.11.0+cu128 | BSD License |
 | tqdm | 4.70.1 | MPL-2.0 AND MIT |
+| trafilatura | 2.2.0 | Apache-2.0 |
 | transformers | 5.2.0 | Apache 2.0 License |
 | typer | 0.27.2 | MIT |
 | typer_slim | 0.24.0 | MIT |
 | typing_extensions | 4.16.0 | PSF-2.0 |
 | typing_inspection | 0.4.4 | MIT |
+| tzdata | 2026.4 | Apache-2.0 |
+| tzlocal | 5.4.4 | MIT |
 | uritemplate | 4.2.0 | BSD 3-Clause OR Apache-2.0 |
 | urllib3 | 2.8.0 | MIT |
 | uvicorn | 0.53.0 | BSD-3-Clause |

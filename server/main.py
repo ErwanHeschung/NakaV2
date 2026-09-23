@@ -18,7 +18,7 @@ from . import (agent, events, llm, logprune, logsetup, models, ops, panel, paths
                settings, stt, tts, turnlog)
 from .memory import memory
 from .tools import builtin
-from .tools.registry import AGENT, available
+from .tools.registry import AGENT, listed
 
 def turn_note(woke: float) -> str:
     """Per-turn context: the clock, and whether she has just been woken.
@@ -166,9 +166,8 @@ def reply_stream(user_text: str, agentic: bool, messages=None, actions=None):
     utterance is the user's answer to it, not a new request.
     """
     async def generate():
-        settled = await agent.resolve_pending(user_text, actions)
-        if settled is not None:
-            for sentence in llm.split_sentences(settled):
+        if agent.pending is not None:
+            async for sentence in agent.resolve_pending(user_text, actions):
                 yield sentence
             return
 
@@ -330,14 +329,19 @@ async def memory_forget():
 @app.get("/tools")
 async def tools_state():
     return {
+        # Every allowlisted tool, not only those offered right now: a power
+        # that is switched off is shown as off, rather than its tools
+        # silently missing from the list.
         "allowed": [
-            {"name": t.name, "destructive": t.destructive,
-             "description": t.description}
-            for t in available()
+            {"name": t.name, "label": t.label, "summary": t.summary,
+             "power": t.power, "enabled": t.enabled, "confirms": t.confirms,
+             "destructive": t.destructive, "description": t.description}
+            for t in listed()
         ],
-        "max_steps": AGENT["max_steps"],
-        "timeout_s": AGENT["timeout"],
-        "awaiting_confirmation": agent.pending,
+        "powers": {p: bool(settings.POWERS.get(p)) for p in agent.POWERS},
+        "max_steps": agent.limits()[0],
+        "timeout_s": agent.limits()[1],
+        "awaiting_confirmation": agent.pending_view(),
     }
 
 

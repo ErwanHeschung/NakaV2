@@ -318,6 +318,29 @@ FIELDS: list[Field] = [
           "which is what the recording dot in the tab strip means. Off means "
           "asking for it each time you first speak."),
 
+    Field("settings.powers.web", "Let her use the web", "bool", "Powers",
+          "Web searches, and reading the pages they find. The models stay on "
+          "this machine; only the searches and pages go out. Needs her tools "
+          "on."),
+    Field("settings.powers.shell", "Let her use PowerShell", "bool", "Powers",
+          "Commands on this PC, as you. Ones that only look — listing a "
+          "folder, reading a file, git status — run straight away; anything "
+          "that changes something waits for you to say yes. After she has "
+          "read a web page, every command waits, because a page can be "
+          "written to talk her into things."),
+    Field("settings.powers.workspace", "Workspace", "text", "Powers",
+          "Where commands start unless she is told otherwise. She can still "
+          "reach the rest of the disk."),
+    Field("settings.powers.command_timeout", "Command time limit", "int",
+          "Powers",
+          "Seconds before a command, and everything it started, is killed.",
+          minimum=5, maximum=600),
+    Field("settings.powers.brave_api_key", "Brave Search key", "text",
+          "Powers",
+          "Optional. With a key (free tier: 2000 searches a month) searches "
+          "go through Brave; empty uses DuckDuckGo, which needs no account "
+          "but is less dependable."),
+
     Field("settings.identity.assistant", "Assistant name", "text", "Identity",
           "What she is called, everywhere — the persona reads it from here."),
     Field("settings.identity.user", "Your name", "text", "Identity",
@@ -347,6 +370,12 @@ FIELDS: list[Field] = [
           "Which model file to run. Switching takes effect the next time the "
           "language model starts.", applies="models",
           options=_model_options()),
+    Field("settings.llm.ctx_size", "Context", "int", "Language model",
+          "Tokens she can hold at once: persona, facts, recent turns, tool "
+          "schemas and every result in a chain. 8192 is enough to talk; with "
+          "the web or PowerShell on, 16384 leaves room to read a few pages. "
+          "More costs VRAM.", applies="models",
+          minimum=2048, maximum=32768, step=1024),
     Field("settings.llm.url", "Server", "text", "Language model",
           "Where llama.cpp is listening."),
     Field("settings.llm.temperature", "Temperature", "float", "Language model",

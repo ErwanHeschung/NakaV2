@@ -29,6 +29,7 @@ if sys.platform == "win32":
 
     _JobObjectExtendedLimitInformation = 9
     _JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x2000
+    _JOB_OBJECT_LIMIT_JOB_MEMORY = 0x0200
     _PROCESS_SET_QUOTA = 0x0100
     _PROCESS_TERMINATE = 0x0001
 
@@ -69,12 +70,15 @@ if sys.platform == "win32":
     _k32.AssignProcessToJobObject.argtypes = (wintypes.HANDLE, wintypes.HANDLE)
     _k32.CloseHandle.argtypes = (wintypes.HANDLE,)
 
-    def _create_job():
+    def _create_job(memory_bytes: int = 0):
         job = _k32.CreateJobObjectW(None, None)
         if not job:
             raise ctypes.WinError(ctypes.get_last_error())
         info = _ExtendedLimits()
         info.BasicLimitInformation.LimitFlags = _JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+        if memory_bytes:
+            info.BasicLimitInformation.LimitFlags |= _JOB_OBJECT_LIMIT_JOB_MEMORY
+            info.JobMemoryLimit = memory_bytes
         if not _k32.SetInformationJobObject(
                 job, _JobObjectExtendedLimitInformation,
                 ctypes.byref(info), ctypes.sizeof(info)):
@@ -96,16 +100,62 @@ def contain(pid: int) -> bool:
             # Created once and deliberately never closed: closing it is what
             # kills the children, and that should happen only when we exit.
             _job = _create_job()
-        handle = _k32.OpenProcess(_PROCESS_SET_QUOTA | _PROCESS_TERMINATE,
-                                  False, pid)
-        if not handle:
-            raise ctypes.WinError(ctypes.get_last_error())
-        try:
-            if not _k32.AssignProcessToJobObject(_job, handle):
-                raise ctypes.WinError(ctypes.get_last_error())
-        finally:
-            _k32.CloseHandle(handle)
+        _assign(_job, pid)
         return True
     except OSError as e:
         log.warning("could not tie pid %d to this process's lifetime: %s", pid, e)
         return False
+
+
+def _assign(job, pid: int) -> None:
+    handle = _k32.OpenProcess(_PROCESS_SET_QUOTA | _PROCESS_TERMINATE,
+                              False, pid)
+    if not handle:
+        raise ctypes.WinError(ctypes.get_last_error())
+    try:
+        if not _k32.AssignProcessToJobObject(job, handle):
+            raise ctypes.WinError(ctypes.get_last_error())
+    finally:
+        _k32.CloseHandle(handle)
+
+
+def command_job(pid: int, memory_mb: int):
+    """A job of its own for one command, capped in memory. Returns its handle.
+
+    Separate from the lifetime job above because it has to be closable on its
+    own: closing this handle is how a command that ran too long, or that the
+    kill switch caught, is ended — along with everything it started, which
+    killing the PowerShell process alone would leave running.
+
+    Raises on failure. A command that cannot be contained is not run.
+    """
+    if sys.platform != "win32":
+        raise OSError("commands can only be contained on Windows")
+    job = _create_job(memory_mb * 1024 * 1024)
+    try:
+        _assign(job, pid)
+    except OSError:
+        _k32.CloseHandle(job)
+        raise
+    return job
+
+
+def close_job(job) -> None:
+    """End every process in a job made by command_job."""
+    if job is not None and sys.platform == "win32":
+        _k32.CloseHandle(job)
+
+
+def release_job(job) -> None:
+    """Let go of a command's job without ending what is still in it.
+
+    A command that finished may have launched something meant to outlive it —
+    an editor, a folder window. Lifting the kill-on-close limit before closing
+    the handle leaves those alone.
+    """
+    if job is None or sys.platform != "win32":
+        return
+    info = _ExtendedLimits()
+    _k32.SetInformationJobObject(job, _JobObjectExtendedLimitInformation,
+                                 ctypes.byref(info), ctypes.sizeof(info))
+    _k32.CloseHandle(job)

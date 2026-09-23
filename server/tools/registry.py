@@ -16,7 +16,7 @@ from pathlib import Path
 
 import yaml
 
-from .. import events, paths
+from .. import events, paths, settings
 
 log = logging.getLogger("naka.tools")
 
@@ -34,27 +34,44 @@ CONFIG = paths.CONFIG / "tools.yaml"
 AUDIT = paths.LOGS / "audit.jsonl"
 
 
+def _read_config(path: Path) -> dict | None:
+    try:
+        loaded = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return None
+    except yaml.YAMLError as e:
+        log.error("%s is not valid YAML (%s); ignoring it", path, e)
+        return None
+    if isinstance(loaded, dict) and "tools" in loaded:
+        return loaded
+    log.error("%s has no tools section; ignoring it", path)
+    return None
+
+
 def _load_config() -> dict:
-    """The person's tools.yaml, falling back to the shipped one.
+    """The person's tools.yaml laid over the shipped one.
 
     Read at import, which is when every tool registers — so a file that is
     missing or malformed used to kill the process with a bare traceback. In
     an app with no console, that is a server that silently never starts.
+
+    Overlaid rather than chosen between, one level deep: the person's copy is
+    seeded once and never rewritten, so without this a tool added in a later
+    version would be missing from their allowlist, and therefore disabled,
+    forever. Whatever they did set still wins, tool by tool.
     """
-    for candidate in (CONFIG, paths.DEFAULTS / "tools.yaml"):
-        try:
-            loaded = yaml.safe_load(candidate.read_text(encoding="utf-8"))
-        except FileNotFoundError:
-            continue
-        except yaml.YAMLError as e:
-            log.error("%s is not valid YAML (%s); using the shipped defaults",
-                      candidate, e)
-            continue
-        if isinstance(loaded, dict) and "tools" in loaded:
-            return loaded
-        log.error("%s has no tools section; using the shipped defaults",
-                  candidate)
-    raise RuntimeError(f"no usable tools.yaml in {CONFIG} or {paths.DEFAULTS}")
+    shipped = _read_config(paths.DEFAULTS / "tools.yaml")
+    theirs = _read_config(CONFIG)
+    if shipped is None and theirs is None:
+        raise RuntimeError(
+            f"no usable tools.yaml in {CONFIG} or {paths.DEFAULTS}")
+    merged = dict(shipped or {})
+    for key, value in (theirs or {}).items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = {**merged[key], **value}
+        else:
+            merged[key] = value
+    return merged
 
 
 _config = _load_config()
@@ -77,14 +94,45 @@ class Tool:
     parameters: dict
     handler: Callable
     required: list[str] = field(default_factory=list)
+    # A switch in settings.toml's [powers] this tool also answers to. Read on
+    # every call rather than at import, so flipping it in the panel offers or
+    # withdraws the tool from the very next turn.
+    power: str | None = None
+    # Decides per call whether to ask first, for tools where that depends on
+    # what is being asked — a shell listing a folder is not a shell deleting
+    # one. Given the arguments and whether untrusted content has entered the
+    # turn. Without it, the yaml's static `destructive` decides.
+    confirm: Callable[[dict, bool], bool] | None = None
+    # For the panel. `description` is written to steer the model, which makes
+    # it an odd thing to show a person; these are written for them.
+    label: str = ""
+    summary: str = ""
 
     @property
     def enabled(self) -> bool:
+        if not _allowlist.get(self.name, {}).get("enabled", False):
+            return False
+        return self.power is None or bool(settings.POWERS.get(self.power))
+
+    @property
+    def allowlisted(self) -> bool:
         return _allowlist.get(self.name, {}).get("enabled", False)
+
+    @property
+    def confirms(self) -> str:
+        """When it asks first: "always", "changes" or "never"."""
+        if self.destructive:
+            return "always"
+        return "changes" if self.confirm is not None else "never"
 
     @property
     def destructive(self) -> bool:
         return _allowlist.get(self.name, {}).get("destructive", True)
+
+    def needs_confirmation(self, arguments: dict, tainted: bool = False) -> bool:
+        if self.destructive:
+            return True
+        return self.confirm is not None and self.confirm(arguments, tainted)
 
     def schema(self) -> dict:
         return {
@@ -104,7 +152,10 @@ class Tool:
 _registry: dict[str, Tool] = {}
 
 
-def tool(description: str, parameters: dict, required: list[str] | None = None):
+def tool(description: str, parameters: dict, required: list[str] | None = None,
+         power: str | None = None,
+         confirm: Callable[[dict, bool], bool] | None = None,
+         label: str = "", summary: str = ""):
     def decorator(fn):
         name = fn.__name__
         if name not in _allowlist:
@@ -113,9 +164,16 @@ def tool(description: str, parameters: dict, required: list[str] | None = None):
             log.warning("tool %r is not in tools.yaml and will not be available",
                         name)
         _registry[name] = Tool(name, description, parameters, fn,
-                               required or [])
+                               required or [], power, confirm,
+                               label or name.replace("_", " ").capitalize(),
+                               summary or description)
         return fn
     return decorator
+
+
+def listed() -> list[Tool]:
+    """Every allowlisted tool, including those whose power is switched off."""
+    return [t for t in _registry.values() if t.allowlisted]
 
 
 def available() -> list[Tool]:
@@ -131,14 +189,15 @@ def get(name: str) -> Tool | None:
     return tool_obj if tool_obj and tool_obj.enabled else None
 
 
-def audit(name: str, arguments: dict, status: str, detail: str = "") -> None:
+def audit(name: str, arguments: dict, status: str, detail: str = "",
+          limit: int = 500) -> None:
     AUDIT.parent.mkdir(parents=True, exist_ok=True)
     entry = {
         "at": time.strftime("%Y-%m-%dT%H:%M:%S"),
         "tool": name,
         "arguments": arguments,
         "status": status,
-        "detail": detail[:500],
+        "detail": detail[:limit],
     }
     with AUDIT.open("a", encoding="utf-8") as f:
         f.write(json.dumps(entry) + "\n")
@@ -168,7 +227,10 @@ def call(name: str, arguments: dict) -> str:
         audit(name, arguments, "error", repr(e))
         return f"Error running {name}: {e}"
 
-    audit(name, arguments, "ok", result)
+    # A command's output is the whole record of what it did, so it gets more
+    # room than a timer's one-line confirmation.
+    audit(name, arguments, "ok", result,
+          limit=2000 if tool_obj.power == "shell" else 500)
     topic = TOPICS.get(name)
     if topic:
         events.publish(topic)

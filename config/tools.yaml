@@ -1,11 +1,20 @@
 # The allowlist. A tool that is not named here cannot be called, whatever the
 # model asks for — registration in code is not enough.
 #
-# There is deliberately no shell, no eval, no file-write outside notes_dir and
-# no network tool. The freedom to *chain* well-defined tools is what makes this
-# feel agentic; the freedom to run arbitrary code is what makes it dangerous,
-# and only the first is worth having. A quantised model hallucinating a
-# destructive command from an ambiguous sentence is a realistic scenario.
+# Most tools are narrow on purpose: notes confined to notes_dir, timers, the
+# clock. Two reach further, and both sit behind a switch in settings.toml's
+# [powers] that is off until the person turns it on:
+#
+#   web    search and read pages. Whatever comes back is marked untrusted,
+#          because a page can be written to give her instructions.
+#   shell  PowerShell, as the person. A quantised model hallucinating a
+#          destructive command from an ambiguous sentence is a realistic
+#          scenario, so only commands PowerShell's own parser shows to be
+#          read-only run unasked; everything else waits for a spoken yes, and
+#          so does every command once web content has entered the turn.
+#
+# A person's copy of this file is laid over the shipped one tool by tool, so a
+# tool added in a later version shows up without their copy being rewritten.
 
 agent:
   # Hard ceiling on tool calls per request. The loop stops here whether or not
@@ -15,6 +24,13 @@ agent:
   timeout: 30
   # Tools are only offered when the request asks for them (agentic: true).
   default_agentic: false
+  # The ceilings while web or shell is switched on. Looking something up and
+  # reading what comes back is two steps before an answer even starts, and a
+  # task at the prompt is a chain of small checked commands — neither fits in
+  # five steps or thirty seconds.
+  deep:
+    max_steps: 12
+    timeout: 180
 
 paths:
   # The only directory any tool may read or write.
@@ -79,4 +95,20 @@ tools:
 
   forget_fact:
     enabled: false
+    destructive: false
+
+  # --- powers: offered only while their switch in settings.toml is on ------
+
+  web_search:
+    enabled: true
+    destructive: false
+
+  fetch_page:
+    enabled: true
+    destructive: false
+
+  run_command:
+    enabled: true
+    # Not blanket-destructive: the tool decides per command whether to ask,
+    # from what PowerShell's parser finds in it. See server/tools/shell.py.
     destructive: false

@@ -34,6 +34,7 @@ TTS: dict = {}
 AUDIO: dict = {}
 LOGS: dict = {}
 OPS: dict = {}
+POWERS: dict = {}
 VOICE: dict = {}
 
 
@@ -59,7 +60,7 @@ def reload() -> None:
     raw = _merged(_read(_SHIPPED_SETTINGS), _read(SETTINGS_FILE))
     sections = {
         "client": CLIENT, "identity": IDENTITY, "server": SERVER, "llm": LLM, "stt": STT,
-        "tts": TTS, "audio": AUDIO, "logs": LOGS, "ops": OPS,
+        "tts": TTS, "audio": AUDIO, "logs": LOGS, "ops": OPS, "powers": POWERS,
     }
     for name, target in sections.items():
         target.clear()

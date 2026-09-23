@@ -26,6 +26,27 @@ listen_when_open = true
 # only talk; the Python client's --no-tools is the same switch.
 use_tools = true
 
+[powers]
+# What reaches past this machine's own tools. Both off by default, and both
+# only matter when she has her tools at all (use_tools above).
+#
+# The web: searching, and reading the pages it finds. The models themselves
+# never leave the machine; this only lets her look something up.
+web = false
+# A PowerShell prompt, run as you. Commands that only read — listing, reading
+# a file, git status — run straight away. Anything else waits for you to say
+# yes out loud, and so does every command once web content has entered the
+# turn, since a page can be written to talk her into things.
+shell = false
+# A Brave Search API key (free tier: 2000 queries a month). Empty uses
+# DuckDuckGo, which needs no account but is less dependable.
+brave_api_key = ""
+# Where commands start when she does not say otherwise.
+workspace = "~/Documents/Naka Workspace"
+# Longest a single command may run, in seconds, before it and everything it
+# started are killed.
+command_timeout = 20
+
 [server]
 host = "127.0.0.1"
 port = 8000

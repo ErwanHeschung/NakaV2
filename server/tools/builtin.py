@@ -33,6 +33,8 @@ def note_path(name: str):
 @tool(
     description="Get the current date and time.",
     parameters={},
+    label="Clock",
+    summary="The time and date.",
 )
 def get_time():
     return datetime.now().strftime("It is %H:%M on %A %d %B %Y.")
@@ -42,6 +44,8 @@ def get_time():
     description="Report how much GPU memory is free, and how much the models "
                 "are using. Useful before starting a game.",
     parameters={},
+    label="GPU memory",
+    summary="How much graphics memory is free, and how much the models hold.",
 )
 def gpu_status():
     # The same reader /ops/status uses. This used to shell out to nvidia-smi
@@ -64,6 +68,8 @@ def gpu_status():
         "label": {"type": "string", "description": "What the timer is for."},
     },
     required=["duration_seconds"],
+    label="Set a timer",
+    summary="A countdown, up to 24 hours. It rings in the panel.",
 )
 def set_timer(duration_seconds: int, label: str = "timer"):
     if duration_seconds <= 0:
@@ -77,7 +83,12 @@ def set_timer(duration_seconds: int, label: str = "timer"):
     return f"Timer '{label}' set for {spoken if minutes else f'{seconds} seconds'}."
 
 
-@tool(description="List timers that are still running.", parameters={})
+@tool(
+    description="List timers that are still running.",
+    parameters={},
+    label="List timers",
+    summary="What is still counting down.",
+)
 def list_timers():
     now = time.time()
     with _timer_lock:
@@ -95,6 +106,8 @@ def list_timers():
     description="Cancel a running timer.",
     parameters={"label": {"type": "string", "description": "Which timer."}},
     required=["label"],
+    label="Cancel a timer",
+    summary="Stops one before it rings.",
 )
 def cancel_timer(label: str):
     with _timer_lock:
@@ -159,6 +172,8 @@ def note_files() -> list:
         "limit": {"type": "integer", "description": "Max results, default 5."},
     },
     required=["query"],
+    label="Search notes",
+    summary="Finds lines in your notes.",
 )
 def search_notes(query: str, limit: int = 5):
     if not NOTES_DIR.exists():
@@ -178,6 +193,8 @@ def search_notes(query: str, limit: int = 5):
     description="Read a note by name.",
     parameters={"name": {"type": "string", "description": "The note's name."}},
     required=["name"],
+    label="Read a note",
+    summary="Opens one note by name.",
 )
 def read_note(name: str):
     path = note_path(name)
@@ -193,6 +210,8 @@ def read_note(name: str):
         "content": {"type": "string", "description": "What to write."},
     },
     required=["name", "content"],
+    label="Write a note",
+    summary="Creates a note, or adds to one.",
 )
 def write_note(name: str, content: str):
     path = note_path(name)
@@ -206,6 +225,8 @@ def write_note(name: str, content: str):
     description="Delete a note permanently.",
     parameters={"name": {"type": "string", "description": "The note's name."}},
     required=["name"],
+    label="Delete a note",
+    summary="Removes a note for good.",
 )
 def delete_note(name: str):
     path = note_path(name)
@@ -317,6 +338,8 @@ _similar = _same_subject
         }
     },
     required=["fact"],
+    label="Remember",
+    summary="Saves a fact about you.",
 )
 def remember(fact: str):
     from ..memory import memory
@@ -371,6 +394,8 @@ def remember(fact: str):
                                   "list of things you know about them."}
     },
     required=["number"],
+    label="Forget",
+    summary="Drops a remembered fact.",
 )
 def forget_fact(number: int):
     from ..memory import memory
