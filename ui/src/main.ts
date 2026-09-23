@@ -13,6 +13,7 @@ import { Orb, type OrbState } from './orb.js';
 import {
   onSettingsSaved,
   renderMemory,
+  rerender,
   renderNotes,
   renderSettings,
   renderTimers,
@@ -312,8 +313,15 @@ const SECTIONS: Section[] = [
     topic: 'timers',
     render: renderTimers,
   },
-  // The allowlist is read from disk at startup and cannot change under us.
-  { id: 'tools', icon: 'wrench', title: 'Tools', render: renderTools },
+  // Listens to settings: the allowlist is fixed at startup, but the powers
+  // that gate web and PowerShell are switched from here and from Settings.
+  {
+    id: 'tools',
+    icon: 'wrench',
+    title: 'Tools',
+    topic: 'settings',
+    render: renderTools,
+  },
   {
     id: 'settings',
     icon: 'sliders',
@@ -338,10 +346,8 @@ function refreshOpenSection(): void {
   // someone mid-sentence to show them a note they did not change is not a
   // fresher panel, it is a lost draft.
   if (body.dataset.busy !== undefined) return;
-  const top = body.scrollTop;
   teardown();
-  closeSection = section.render(body) ?? null;
-  body.scrollTop = top;
+  closeSection = rerender(body, section.render) ?? null;
 }
 
 const triggers = new Map<string, HTMLElement>();

@@ -17,6 +17,7 @@ import {
   type SettingsState,
   type Timer,
   type TimersState,
+  type ToolInfo,
   type ToolsState,
 } from './api.js';
 import { el, relativeTime, replace } from './dom.js';
@@ -54,8 +55,28 @@ function failed(body: HTMLElement, error: unknown): void {
   replace(body, el('p', { class: 'error' }, reason(error)));
 }
 
+/**
+ * A placeholder while a section's data is fetched — only when opening it.
+ *
+ * On a refresh the old content stays until the new arrives. Blanking it
+ * first collapsed the body to one line, which threw the scroll position
+ * away: every toggle and every save landed the reader back at the top.
+ */
 function loading(body: HTMLElement): void {
+  if (body.dataset.refreshing !== undefined) return;
   replace(body, el('p', { class: 'muted' }, 'Loading…'));
+}
+
+/** Rebuild a section's body without losing the reader's place in it. */
+export function rerender<T>(body: HTMLElement, render: (body: HTMLElement) => T): T {
+  // Renderers call loading() synchronously as they start, which is the only
+  // moment this flag is read, so it can come straight back off.
+  body.dataset.refreshing = '';
+  try {
+    return render(body);
+  } finally {
+    delete body.dataset.refreshing;
+  }
 }
 
 /**
@@ -197,33 +218,110 @@ function paintMemory(body: HTMLElement, state: MemoryState, facts: FactsState): 
 
 /* ------------------------------------------------------------------ tools */
 
+const TOOL_GROUPS: {
+  power: ToolInfo['power'];
+  title: string;
+  off: string;
+}[] = [
+  { power: null, title: 'Everyday', off: '' },
+  {
+    power: 'web',
+    title: 'Web',
+    off: 'Off. She answers from what she already knows.',
+  },
+  {
+    power: 'shell',
+    title: 'PowerShell',
+    off: 'Off. She cannot run anything on this PC.',
+  },
+];
+
+const CONFIRM_TAG: Record<ToolInfo['confirms'], string | null> = {
+  always: 'asks first',
+  changes: 'asks before changes',
+  never: null,
+};
+
+function toolItem(tool: ToolInfo): HTMLElement {
+  const tag = CONFIRM_TAG[tool.confirms];
+  return el(
+    'div',
+    { class: tool.enabled ? 'item' : 'item off', title: tool.name },
+    el(
+      'div',
+      { class: 'row' },
+      el('strong', {}, tool.label),
+      tag === null ? null : el('span', { class: 'tag warn' }, tag),
+    ),
+    el('div', { class: 'muted' }, tool.summary),
+  );
+}
+
 export function renderTools(body: HTMLElement): void {
   loading(body);
   void api
     .tools()
     .then((state: ToolsState) => {
+      const offered = state.allowed.filter((t) => t.enabled).length;
+      const waiting = state.awaiting_confirmation;
+      const label = (name: string): string =>
+        state.allowed.find((t) => t.name === name)?.label ?? name;
+
+      const groups = TOOL_GROUPS.map(({ power, title, off }) => {
+        const tools = state.allowed.filter((t) => t.power === power);
+        if (tools.length === 0) return null;
+        const on = power === null || state.powers[power];
+        // The switch lives here as well as in Settings: this is where the
+        // missing tools are noticed, so this is where they get turned on.
+        const heading = power
+          ? el(
+              'div',
+              { class: 'row spaced' },
+              el('h3', {}, title),
+              toggle(on, (value) => {
+                void api
+                  .saveSettings({ [`settings.powers.${power}`]: value })
+                  .then(() => {
+                    rerender(body, renderTools);
+                  })
+                  .catch((error: unknown) => {
+                    failed(body, error);
+                  });
+              }),
+            )
+          : el('h3', {}, title);
+        return el(
+          'section',
+          {},
+          heading,
+          on ? null : el('p', { class: 'muted' }, off),
+          el('div', { class: 'list' }, ...tools.map((t) => toolItem(t))),
+        );
+      });
+
       replace(
         body,
         el(
           'p',
           { class: 'muted' },
-          `${state.allowed.length} allowed · max ${state.max_steps} steps · ${state.timeout_s}s timeout`,
+          `${offered} offered · up to ${state.max_steps} steps · ${state.timeout_s}s per request`,
         ),
-        ...state.allowed.map((tool) =>
-          el(
-            'div',
-            { class: 'item' },
-            el(
+        waiting
+          ? el(
               'div',
-              { class: 'row' },
-              el('strong', {}, tool.name),
-              tool.destructive
-                ? el('span', { class: 'tag warn' }, 'confirms first')
-                : null,
-            ),
-            el('div', { class: 'muted' }, tool.description),
-          ),
-        ),
+              { class: 'warning' },
+              icon('triangle-alert', 'sm'),
+              el(
+                'span',
+                {},
+                `Waiting for your yes: ${label(waiting.name)}` +
+                  (typeof waiting.arguments.command === 'string'
+                    ? ` — ${waiting.arguments.command}`
+                    : ''),
+              ),
+            )
+          : null,
+        ...groups,
       );
     })
     .catch((error: unknown) => {
@@ -637,7 +735,7 @@ function paintSettings(body: HTMLElement, state: SettingsState): void {
       { class: 'sticky-actions' },
       saveButton,
       button('rotate-ccw', 'Revert', () => {
-        renderSettings(body);
+        rerender(body, renderSettings);
       }),
       el('div', { class: 'spacer' }),
       status,

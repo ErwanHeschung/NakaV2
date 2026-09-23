@@ -33,12 +33,21 @@ export interface FactsState {
 
 export interface ToolInfo {
   name: string;
+  /** Written for a person; `description` is written for the model. */
+  label: string;
+  summary: string;
+  /** The switch in Settings › Powers this tool also needs, if any. */
+  power: 'web' | 'shell' | null;
+  /** Offered to her right now: allowlisted and, if it has one, power on. */
+  enabled: boolean;
+  confirms: 'always' | 'changes' | 'never';
   destructive: boolean;
   description: string;
 }
 
 export interface ToolsState {
   allowed: ToolInfo[];
+  powers: Record<'web' | 'shell', boolean>;
   max_steps: number;
   timeout_s: number;
   awaiting_confirmation: { name: string; arguments: Record<string, unknown> } | null;

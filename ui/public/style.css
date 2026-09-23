@@ -474,6 +474,16 @@ h3:first-child {
   margin-top: 0;
 }
 
+/* A heading with a switch beside it, as the Tools drawer's powers have. The
+   row takes the heading's spacing so the two line up. */
+.row.spaced:has(> h3) {
+  margin: 16px 0 7px;
+}
+
+.row.spaced > h3 {
+  margin: 0;
+}
+
 p {
   margin: 5px 0;
 }
@@ -673,6 +683,12 @@ button.item.clickable {
 button.item.clickable:hover {
   border-color: #33394c;
   background: rgba(255, 255, 255, 0.05);
+}
+
+/* A tool whose power is switched off: still listed, so it is clear what
+   turning it on would give her, but plainly not in reach. */
+.item.off {
+  opacity: 0.45;
 }
 
 .item.row {
