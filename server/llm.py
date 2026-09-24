@@ -52,11 +52,12 @@ async def aclose() -> None:
         _client = None
 
 
-def _body(messages: list[dict], stream: bool) -> dict:
+def _body(messages: list[dict], stream: bool,
+          max_tokens: int | None = None) -> dict:
     return {
         "messages": messages,
         "temperature": settings.LLM["temperature"],
-        "max_tokens": settings.LLM["max_tokens"],
+        "max_tokens": max_tokens or settings.LLM["max_tokens"],
         "stream": stream,
         "chat_template_kwargs": {
             "enable_thinking": settings.LLM["enable_thinking"]
@@ -100,11 +101,14 @@ async def complete(messages: list[dict]) -> str:
     return response.json()["choices"][0]["message"]["content"]
 
 
-async def stream_with_tools(messages: list[dict], tools: list[dict]):
+async def stream_with_tools(messages: list[dict], tools: list[dict],
+                            max_tokens: int | None = None):
     """One turn with tools offered, streamed.
 
     Yields ("sentence", str) as sentences complete and, at the end,
-    ("tool_calls", list) if the model asked for any.
+    ("tool_calls", list) if the model asked for any, then ("finish", reason)
+    with the server's finish_reason — "length" means the reply, or a call's
+    arguments, were cut off by max_tokens.
 
     The agentic path used to be non-streaming on the grounds that nothing can
     be spoken until it is known whether the model wants to talk or to act.
@@ -115,12 +119,13 @@ async def stream_with_tools(messages: list[dict], tools: list[dict]):
     waiting for a complete response.
     """
     url = f"{settings.LLM['url'].rstrip('/')}/v1/chat/completions"
-    body = _body(messages, stream=True)
+    body = _body(messages, stream=True, max_tokens=max_tokens)
     if tools:
         body["tools"] = tools
         body["tool_choice"] = "auto"
 
     buffer = ""
+    finish = None
     # Merged by index: arguments arrive a fragment at a time across deltas.
     partial: dict[int, dict] = {}
 
@@ -132,7 +137,9 @@ async def stream_with_tools(messages: list[dict], tools: list[dict]):
             payload = line[6:]
             if payload == "[DONE]":
                 break
-            delta = json.loads(payload)["choices"][0].get("delta", {})
+            choice = json.loads(payload)["choices"][0]
+            finish = choice.get("finish_reason") or finish
+            delta = choice.get("delta", {})
 
             for call in delta.get("tool_calls") or []:
                 slot = partial.setdefault(
@@ -162,6 +169,7 @@ async def stream_with_tools(messages: list[dict], tools: list[dict]):
         yield "sentence", tail
     if partial:
         yield "tool_calls", [partial[i] for i in sorted(partial)]
+    yield "finish", finish
 
 
 def split_sentences(text: str) -> list[str]:

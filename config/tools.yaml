@@ -112,3 +112,16 @@ tools:
     # Not blanket-destructive: the tool decides per command whether to ask,
     # from what PowerShell's parser finds in it. See server/tools/shell.py.
     destructive: false
+
+  write_file:
+    enabled: true
+    # Changes a file, so it always asks.
+    destructive: true
+
+  read_file:
+    enabled: true
+    destructive: false
+
+  find_files:
+    enabled: true
+    destructive: false

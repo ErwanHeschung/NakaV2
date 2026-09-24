@@ -57,6 +57,30 @@ READ_ONLY = {
     "nvidia-smi", "nvidia-smi.exe",
 }
 
+# .NET methods that only compute. Rounding a size to gigabytes needed
+# [math]::Round, and every such listing waited for a yes as if it could write.
+# Static calls count only on these types; [IO.File]::Delete is the reason.
+SAFE_TYPES = {"math", "system.math", "string", "system.string", "datetime",
+              "system.datetime", "timespan", "system.timespan", "convert",
+              "system.convert", "io.path", "system.io.path", "environment",
+              "system.environment"}
+SAFE_STATIC = {"round", "floor", "ceiling", "abs", "min", "max", "truncate",
+               "pow", "sqrt", "join", "format", "isnullorempty",
+               "isnullorwhitespace", "now", "parse", "today", "fromseconds",
+               "fromminutes", "tostring", "toint32", "toint64", "todouble",
+               "getfilename", "getextension", "getdirectoryname",
+               "getfilenamewithoutextension", "combine", "getfolderpath",
+               "getenvironmentvariable"}
+# Instance methods, which run on whatever the expression holds, so only
+# names no file or process object has for changing things. No Replace:
+# FileInfo.Replace swaps files.
+SAFE_INSTANCE = {"tostring", "trim", "trimstart", "trimend", "split",
+                 "toupper", "tolower", "substring", "contains", "startswith",
+                 "endswith", "indexof", "lastindexof", "padleft", "padright",
+                 "equals", "gettype", "count", "tostring", "adddays",
+                 "addhours", "addminutes", "toshortdatestring",
+                 "tolongdatestring", "toshorttimestring"}
+
 # git is read-only only for these, and only with arguments that keep it so.
 GIT_READ = {"status", "log", "diff", "show", "branch", "remote", "rev-parse",
             "ls-files", "blame", "describe", "shortlog", "tag"}
@@ -88,7 +112,14 @@ $commands = @($ast.FindAll({ param($n)
 @{ errors = $errors.Count;
    commands = $commands;
    redirections = Count ([System.Management.Automation.Language.FileRedirectionAst]);
-   methods = Count ([System.Management.Automation.Language.InvokeMemberExpressionAst]);
+   methods = @($ast.FindAll({ param($n)
+       $n -is [System.Management.Automation.Language.InvokeMemberExpressionAst] }, $true) |
+       ForEach-Object {
+           @{ static = $_.Static;
+              type = $(if ($_.Expression -is [System.Management.Automation.Language.TypeExpressionAst]) {
+                         $_.Expression.TypeName.FullName } else { '' });
+              member = [string]$_.Member.Value }
+       });
    assignments = Count ([System.Management.Automation.Language.AssignmentStatementAst])
 } | ConvertTo-Json -Depth 5 -Compress
 """
@@ -165,9 +196,17 @@ def classify(command: str) -> str:
     report = inspect(command.strip())
     if report is None or report.get("errors"):
         return "write"
-    if report.get("redirections") or report.get("methods") \
-            or report.get("assignments"):
+    if report.get("redirections") or report.get("assignments"):
         return "write"
+    methods = report.get("methods") or []
+    for method in [methods] if isinstance(methods, dict) else methods:
+        member = (method.get("member") or "").lower()
+        if method.get("static"):
+            if ((method.get("type") or "").lower() not in SAFE_TYPES
+                    or member not in SAFE_STATIC):
+                return "write"
+        elif member not in SAFE_INSTANCE:
+            return "write"
     if not report["commands"]:
         # Nothing but expressions — `1 + 1`, a string. Harmless.
         return "read"

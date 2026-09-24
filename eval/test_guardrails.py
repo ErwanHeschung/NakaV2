@@ -51,7 +51,7 @@ def canned(*responses):
     """
     queue = list(responses)
 
-    async def fake(messages, tools):
+    async def fake(messages, tools, max_tokens=None):
         seen.append([dict(m) for m in messages])
         reply = queue.pop(0) if queue else "Done."
         if isinstance(reply, str):
@@ -155,7 +155,7 @@ async def core():
     canned(*[tool_call("get_time") for _ in range(5)])
     scripted = llm.stream_with_tools
 
-    async def trips(messages, tools):
+    async def trips(messages, tools, max_tokens=None):
         agent.kill_switch.trip()
         async for item in scripted(messages, tools):
             yield item

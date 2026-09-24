@@ -204,7 +204,9 @@ def read_note(name: str):
 
 
 @tool(
-    description="Write a note, or append to it if it already exists.",
+    description="Write a note in the user's notes, or append to it if it "
+                "already exists. Notes only: a file anywhere else — in a "
+                "folder, the workspace, a project — is write_file's job.",
     parameters={
         "name": {"type": "string", "description": "The note's name."},
         "content": {"type": "string", "description": "What to write."},

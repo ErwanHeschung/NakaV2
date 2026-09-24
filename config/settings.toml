@@ -62,6 +62,11 @@ model_file = "gemma-4-12b-it-qat-q4_0.gguf"
 ctx_size = 8192
 temperature = 0.0
 max_tokens = 256
+# The same cap while web or PowerShell is on. A tool call's arguments count
+# against it, and a file's content does not fit in 256: the call was cut off
+# mid-string and nothing was written. Spoken replies stay short anyway, since
+# the persona asks for that.
+tool_max_tokens = 3072
 # Both Gemma 4 and Qwen3 emit reasoning tokens by default. They never reach the
 # speakers, so they are pure latency: with a 256-token cap neither model
 # produced a single spoken word. See eval/RESULTS.md.
