@@ -35,7 +35,7 @@ from PIL import Image
 
 from server import autostart, logsetup, paths, settings
 
-from . import orb, theme
+from . import logo, theme
 from .supervisor import Server
 from .voice import Voice
 
@@ -55,10 +55,10 @@ the first time after the computer starts.</div>
 
 
 def _icon_image(state: str) -> Image.Image:
-    """Cached: pystray asks for the icon on every state change, and drawing a
-    sphere four times oversampled is not free at that rate."""
+    """Cached: pystray asks for the icon on every state change, and rendering
+    the logo four times oversampled is not free at that rate."""
     if state not in _ICONS:
-        _ICONS[state] = orb.for_state(state)
+        _ICONS[state] = logo.for_state(state)
     return _ICONS[state]
 
 
@@ -230,6 +230,9 @@ def main() -> None:
                                 repaint("ready")
                         elif event.get("topic") == "client" and event.get("show"):
                             show()
+                        elif event.get("topic") == "client" and event.get("interrupt"):
+                            # The panel's Stop button: end the answer playing here.
+                            voice.silence()
             except (httpx.HTTPError, ValueError):
                 pass
             time.sleep(2.0)

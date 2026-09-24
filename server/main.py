@@ -14,8 +14,8 @@ from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import (agent, events, llm, logprune, logsetup, models, ops, panel, paths,
-               settings, stt, tts, turnlog)
+from . import (agent, conversation, events, llm, logprune, logsetup, models, ops,
+               panel, paths, settings, stt, tts, turnlog)
 from .memory import memory
 from .tools import builtin
 from .tools.registry import AGENT, listed
@@ -221,6 +221,9 @@ async def stt_endpoint(file: UploadFile):
 @app.post("/chat")
 async def chat_endpoint(body: TextIn):
     """Newline-delimited JSON, one object per sentence, as they are produced."""
+    # Shown in the chat before the models are woken, which can take seconds.
+    turn_id = conversation.next_id()
+    conversation.heard(turn_id, body.text, "text")
     async with ops.Busy():
         woke = await ops.ensure_loaded()
     messages = memory.messages(body.text, turn_note(woke))
@@ -230,22 +233,50 @@ async def chat_endpoint(body: TextIn):
         first = None
         spoken = []
         actions: list[dict] = []
-        # The whole reply, not just the load, the way /converse does it.
-        # Marked only around ensure_loaded, a reply was in flight with nothing
-        # saying so: an agentic turn may run for the full 30s tool timeout,
-        # and the idle watcher was free to pull the models out from under it.
-        async with ops.Busy():
-            async for sentence in reply_stream(body.text, body.agentic,
-                                               messages, actions):
-                now = (time.perf_counter() - start) * 1000
-                if first is None:
-                    first = now
-                    log.info("llm first sentence %.0fms", now)
-                spoken.append(sentence)
-                yield json.dumps({"sentence": sentence, "ms": round(now)}) + "\n"
-            await remember(body.text, " ".join(spoken), actions)
+        finished = False
+        try:
+            # The whole reply, not just the load, the way /converse does it.
+            # Marked only around ensure_loaded, a reply was in flight with
+            # nothing saying so: an agentic turn may run for the full tool
+            # timeout, and the idle watcher was free to pull the models out
+            # from under it.
+            async with ops.Busy():
+                async for sentence in reply_stream(body.text, body.agentic,
+                                                   messages, actions):
+                    now = (time.perf_counter() - start) * 1000
+                    if first is None:
+                        first = now
+                        log.info("llm first sentence %.0fms", now)
+                    spoken.append(sentence)
+                    conversation.said(turn_id, sentence)
+                    yield json.dumps({"id": turn_id, "sentence": sentence,
+                                      "ms": round(now)}) + "\n"
+            finished = True
+        finally:
+            if not finished:
+                interrupted(turn_id, body.text, spoken, actions, "text")
+        await remember(body.text, " ".join(spoken), actions)
+        conversation.record(turn_id, body.text, " ".join(spoken), via="text",
+                            tools=actions)
 
     return StreamingResponse(generate(), media_type="application/x-ndjson")
+
+
+def interrupted(turn_id: int, user_text: str, spoken: list[str],
+                actions: list[dict], via: str) -> None:
+    """Keep a reply that was cut off, as far as it got.
+
+    Runs while the response is being torn down — the person pressed the talk
+    key again, or closed the panel — so nothing here may await. Without it
+    the exchange vanished: the model would not know what it had started
+    saying, and the chat would not show that anything was asked.
+    """
+    reply = " ".join(spoken)
+    log.info("turn %d interrupted after %d sentences", turn_id, len(spoken))
+    memory.add_turn(user_text, (reply + " [interrupted]").strip(), actions)
+    events.publish("conversation")
+    conversation.record(turn_id, user_text, reply, via=via, tools=actions,
+                        interrupted=True)
 
 
 # Background tasks, held so they are not collected mid-flight.
@@ -295,6 +326,12 @@ async def _reconcile_then_announce(user_text: str, reply: str) -> None:
     told when it happens rather than being left to notice."""
     await memory.reconcile(user_text, reply)
     events.publish("memory")
+
+
+@app.get("/conversation")
+async def conversation_page(before: int | None = None, limit: int = 20):
+    """The chat history, a page at a time, newest last."""
+    return conversation.page(before, limit)
 
 
 @app.get("/memory")
@@ -379,6 +416,9 @@ async def ops_load():
 async def agent_stop():
     """Kill switch. The client binds this to a hotkey."""
     agent.kill_switch.trip()
+    # Whoever is playing the answer stops too: the tray, when the stop came
+    # from the panel's button rather than its own talk key.
+    events.publish("client", interrupt=True)
     return {"status": "stopping"}
 
 
@@ -429,38 +469,55 @@ async def converse(file: UploadFile,
         raise HTTPException(status_code=400, detail="no speech detected")
 
     prompt = memory.messages(heard, turn_note(woke))
+    # Announced now, before a word of the answer exists: the chat shows what
+    # was heard while she is still thinking about it.
+    turn_id = conversation.next_id()
+    conversation.heard(turn_id, heard, "voice")
 
     async def generate():
         stream = tts.OpusStream() if format == "opus" else None
         first_sound = None
         spoken = []
         actions: list[dict] = []
+        finished = False
 
-        # Its own span rather than one carried across the generator boundary,
-        # so a client that hangs up mid-reply still releases the marker.
-        async with ops.Busy():
-            async for sentence in reply_stream(heard, agentic, prompt, actions):
-                async with models.gpu_lock:
-                    samples = await asyncio.to_thread(tts.synthesize, sentence)
-                    chunk = (await asyncio.to_thread(stream.push, samples)
-                             if stream else tts.to_pcm16(samples))
-                spoken.append(sentence)
-                if not chunk:
-                    # The Ogg muxer emits whole pages; until one is complete
-                    # there is nothing to send, so this is not yet first sound.
-                    continue
-                if first_sound is None:
-                    first_sound = (time.perf_counter() - start) * 1000
-                    log.info("FIRST SOUND %.0fms (first bytes on the wire)",
-                             first_sound)
-                yield chunk
+        try:
+            # Its own span rather than one carried across the generator
+            # boundary, so a client that hangs up mid-reply still releases
+            # the marker.
+            async with ops.Busy():
+                async for sentence in reply_stream(heard, agentic, prompt, actions):
+                    async with models.gpu_lock:
+                        samples = await asyncio.to_thread(tts.synthesize, sentence)
+                        chunk = (await asyncio.to_thread(stream.push, samples)
+                                 if stream else tts.to_pcm16(samples))
+                    spoken.append(sentence)
+                    conversation.said(turn_id, sentence)
+                    if not chunk:
+                        # The Ogg muxer emits whole pages; until one is
+                        # complete there is nothing to send, so this is not
+                        # yet first sound.
+                        continue
+                    if first_sound is None:
+                        first_sound = (time.perf_counter() - start) * 1000
+                        log.info("FIRST SOUND %.0fms (first bytes on the wire)",
+                                 first_sound)
+                    yield chunk
 
-            if stream:
-                tail = await asyncio.to_thread(stream.close)
-                if tail:
-                    yield tail
+                if stream:
+                    tail = await asyncio.to_thread(stream.close)
+                    if tail:
+                        yield tail
+            finished = True
+        finally:
+            # The client hung up: pressed the talk key to interrupt, most
+            # likely. What was said so far is kept, marked as cut off.
+            if not finished:
+                interrupted(turn_id, heard, spoken, actions, "voice")
 
         await remember(heard, " ".join(spoken), actions)
+        conversation.record(turn_id, heard, " ".join(spoken), via="voice",
+                            tools=actions)
         total = (time.perf_counter() - start) * 1000
         turnlog.record(
             heard=heard, messages=prompt, spoken=spoken, agentic=agentic,

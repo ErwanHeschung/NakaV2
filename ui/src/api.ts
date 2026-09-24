@@ -20,6 +20,26 @@ export interface OpsStatus {
   loading: { step: string; index: number; total: number; seconds: number } | null;
 }
 
+/** One exchange in the chat history, as the server keeps it. */
+export interface ConversationTurn {
+  id: number;
+  /** ISO timestamp, seconds precision, local time. */
+  at: string;
+  user: string;
+  naka: string;
+  via: 'voice' | 'text';
+  /** Names of the tools that ran, in order. */
+  tools: string[];
+  /** Cut off by the talk key or a stop, as far as it had got. */
+  interrupted: boolean;
+}
+
+export interface ConversationPage {
+  turns: ConversationTurn[];
+  /** Whether there are older turns before the first one here. */
+  has_more: boolean;
+}
+
 export interface MemoryState {
   facts: string[];
   summary: string;
@@ -183,6 +203,36 @@ export class NakaApi {
 
   memory(): Promise<MemoryState> {
     return this.request('/memory');
+  }
+
+  /** A page of the chat history, oldest first; `before` pages backwards. */
+  conversation(before?: number, limit = 20): Promise<ConversationPage> {
+    const query = new URLSearchParams({ limit: String(limit) });
+    if (before !== undefined) query.set('before', String(before));
+    return this.request(`/conversation?${query.toString()}`);
+  }
+
+  /**
+   * Send a typed message. The reply arrives as turn events like a spoken
+   * one does, so this only has to read the stream to its end; aborting the
+   * signal hangs up, which the server keeps as an interrupted turn.
+   */
+  async say(text: string, agentic: boolean, signal?: AbortSignal): Promise<void> {
+    const response = await fetch(`${this.base}/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, agentic }),
+      signal: signal ?? null,
+    });
+    if (!response.ok || !response.body) {
+      const detail = await response.text().catch(() => response.statusText);
+      throw new ApiError(detail.slice(0, 200), response.status);
+    }
+    const reader = response.body.getReader();
+    for (;;) {
+      const { done } = await reader.read();
+      if (done) return;
+    }
   }
 
   facts(): Promise<FactsState> {

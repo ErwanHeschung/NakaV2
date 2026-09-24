@@ -100,9 +100,15 @@ class PcmPlayer:
     the TTS rate and are stretched to the held-open output stream's rate.
     """
 
-    def __init__(self, out, rate: int):
+    # Written a tenth of a second at a time, so a cancel lands within that.
+    # Aborting the stream from another thread instead left the blocked write
+    # hanging on Windows' MME driver, and the stream would not start again.
+    SLICE = PLAYBACK_RATE // 10
+
+    def __init__(self, out, rate: int, cancel=None):
         self.out = out
         self.rate = rate
+        self.cancel = cancel
         self._carry = b""
 
     def feed(self, data: bytes) -> bool:
@@ -118,5 +124,8 @@ class PcmPlayer:
             n = int(round(samples.size * PLAYBACK_RATE / self.rate))
             samples = np.interp(np.linspace(0, samples.size - 1, n),
                                 np.arange(samples.size), samples).astype(np.float32)
-        self.out.write(samples)
+        for start in range(0, samples.size, self.SLICE):
+            if self.cancel is not None and self.cancel.is_set():
+                return True
+            self.out.write(samples[start:start + self.SLICE])
         return True

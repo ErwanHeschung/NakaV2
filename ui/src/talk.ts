@@ -53,6 +53,10 @@ export class Talk {
   private state: TalkState = 'off';
   /** Where the next reply chunk is scheduled. Ahead of `currentTime`. */
   private playHead = 0;
+  /** The reply in flight, so the talk key or Stop can hang it up. */
+  private reply: AbortController | null = null;
+  /** Chunks scheduled but not finished, so an interruption can silence them. */
+  private readonly sources = new Set<AudioBufferSourceNode>();
 
   constructor(private readonly handlers: Handlers) {}
 
@@ -177,8 +181,32 @@ export class Talk {
     return true;
   }
 
+  /**
+   * Stop the answer in progress: the request, the sound already scheduled,
+   * and the agent on the server, which may be in the middle of a command.
+   * Pressing the talk key while she answers does this, so speaking over her
+   * works the way it does with a person.
+   */
+  interrupt(): void {
+    const answering =
+      this.reply !== null || this.state === 'thinking' || this.state === 'speaking';
+    this.reply?.abort();
+    this.reply = null;
+    for (const source of this.sources) {
+      try {
+        source.stop();
+      } catch {
+        // Already ended; nothing to stop.
+      }
+    }
+    this.sources.clear();
+    this.playHead = this.context().currentTime;
+    if (answering) void api.stopAgent().catch(() => null);
+  }
+
   private beginRecording(): void {
     if (!this.stream || this.state === 'listening') return;
+    if (this.state === 'thinking' || this.state === 'speaking') this.interrupt();
     // Told the moment the key goes down, so an idle reload of the models
     // overlaps with speaking instead of following it.
     void api.wake().catch(() => null);
@@ -248,10 +276,18 @@ export class Talk {
     body.append('agentic', String(this.config?.agentic ?? false));
     body.append('format', 'pcm');
 
+    const controller = new AbortController();
+    this.reply = controller;
     let response: Response;
     try {
-      response = await fetch('/converse', { method: 'POST', body });
+      response = await fetch('/converse', {
+        method: 'POST',
+        body,
+        signal: controller.signal,
+      });
     } catch (error) {
+      // Aborted means interrupted: whatever comes next has set its own state.
+      if (controller.signal.aborted) return;
       this.set('ready', error instanceof Error ? error.message : 'send failed');
       return;
     }
@@ -265,7 +301,13 @@ export class Talk {
     const rate =
       Number(response.headers.get('X-Sample-Rate')) ||
       (this.config?.sample_rate ?? 24000);
-    await this.play(response.body, rate);
+    try {
+      await this.play(response.body, rate, controller.signal);
+    } catch {
+      // A read cut short by an interruption. Nothing to report.
+    }
+    if (controller.signal.aborted) return;
+    this.reply = null;
     this.set(this.armed ? 'ready' : 'off');
   }
 
@@ -276,7 +318,11 @@ export class Talk {
    * on arrival, so the sentences join without a gap even though they are
    * synthesised one at a time.
    */
-  private async play(body: ReadableStream<Uint8Array>, rate: number): Promise<void> {
+  private async play(
+    body: ReadableStream<Uint8Array>,
+    rate: number,
+    signal: AbortSignal,
+  ): Promise<void> {
     const audio = this.context();
     await audio.resume();
     this.playHead = Math.max(this.playHead, audio.currentTime);
@@ -288,7 +334,7 @@ export class Talk {
 
     for (;;) {
       const { done, value } = await reader.read();
-      if (done) break;
+      if (done || signal.aborted) break;
       const merged = new Uint8Array(carry.length + value.length);
       merged.set(carry);
       merged.set(value, carry.length);
@@ -308,6 +354,10 @@ export class Talk {
       this.playHead = Math.max(this.playHead, audio.currentTime);
       source.start(this.playHead);
       this.playHead += buffer.duration;
+      this.sources.add(source);
+      source.addEventListener('ended', () => {
+        this.sources.delete(source);
+      });
       last = source;
 
       if (!spoke) {

@@ -41,6 +41,12 @@ class Voice:
             max_keepalive_connections=4, keepalive_expiry=600.0))
         self._out = None
         self._listener = None
+        # Barge-in: pressing the key while she is answering stops her. Set
+        # while a reply is being fetched or played, and the means to end it.
+        self._answering = threading.Event()
+        self._cancel = threading.Event()
+        self._response = None
+        self._response_lock = threading.Lock()
 
     @property
     def key(self) -> str:
@@ -90,7 +96,42 @@ class Voice:
         # Compared against whatever the key is now, so a change in Settings
         # takes effect without restarting the listener.
         if key == self._hotkey:
+            if not self._held.is_set() and self._answering.is_set():
+                self._interrupt()
             self._held.set()
+
+    def silence(self) -> None:
+        """Stop the answer because the server said to, without telling it."""
+        if self._answering.is_set():
+            self._interrupt(tell_server=False)
+
+    def _interrupt(self, tell_server: bool = True) -> None:
+        """Stop the answer in progress: its sound, its request, its task.
+
+        Called from the keyboard hook's thread while the voice thread is
+        blocked reading the reply or writing audio. The flag stops the audio
+        within a tenth of a second (the player writes in slices and checks
+        it); closing the response unblocks a read that is waiting on her to
+        think; and the server is told to stop the agent, which ends a command
+        or a search mid-way.
+        """
+        log.info("interrupted by the talk key")
+        self._cancel.set()
+        with self._response_lock:
+            response = self._response
+        if response is not None:
+            try:
+                response.close()
+            except Exception:  # noqa: BLE001  whatever state it was in
+                pass
+        if tell_server:
+            threading.Thread(target=self._stop_agent, daemon=True).start()
+
+    def _stop_agent(self) -> None:
+        try:
+            self._http.post(f"{self.url}/agent/stop", timeout=5.0)
+        except httpx.HTTPError:
+            pass
 
     def _release(self, key):
         if key == self._hotkey:
@@ -130,10 +171,17 @@ class Voice:
                 self._state("ready")
                 continue
             self._state("thinking")
+            self._cancel.clear()
+            self._answering.set()
             try:
                 self._converse(to_wav(samples))
             except Exception as e:
-                log.error("turn failed: %s", e)
+                if not self._cancel.is_set():
+                    log.error("turn failed: %s", e)
+            finally:
+                self._answering.clear()
+                with self._response_lock:
+                    self._response = None
             self._state("ready")
 
     def _wait_release(self) -> None:
@@ -159,10 +207,17 @@ class Voice:
                 log.info("server said %s: %s", response.status_code,
                          response.text[:200])
                 return
+            with self._response_lock:
+                self._response = response
+            if self._cancel.is_set():
+                return
             rate = int(response.headers.get("X-Sample-Rate", "24000"))
-            player = PcmPlayer(self._out, rate) if self._out is not None else None
+            player = (PcmPlayer(self._out, rate, self._cancel)
+                      if self._out is not None else None)
             spoke = False
             for chunk in response.iter_bytes():
+                if self._cancel.is_set():
+                    return
                 if player is None:
                     continue
                 if player.feed(chunk) and not spoke:

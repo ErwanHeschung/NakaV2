@@ -14,7 +14,14 @@
  */
 
 export type Topic =
-  'notes' | 'timers' | 'memory' | 'conversation' | 'settings' | 'client';
+  | 'notes'
+  | 'timers'
+  | 'memory'
+  | 'conversation'
+  | 'settings'
+  | 'client'
+  | 'turn'
+  | 'ops';
 
 export interface ServerEvent {
   topic: Topic;
@@ -25,6 +32,15 @@ export interface ServerEvent {
   state?: string;
   /** Only on 'client': the tray asking its window to come forward. */
   show?: boolean;
+  /** Only on 'client': a stop was asked for, so any playback should end. */
+  interrupt?: boolean;
+  /** Only on 'turn': which exchange, and what just happened in it. */
+  id?: number;
+  phase?: 'heard' | 'sentence' | 'done';
+  /** On 'heard', what was said to her; on 'sentence', what she said. */
+  text?: string;
+  via?: 'voice' | 'text';
+  interrupted?: boolean;
 }
 
 interface Handlers {

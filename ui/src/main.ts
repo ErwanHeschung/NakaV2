@@ -7,7 +7,8 @@
  * which is the live status indicator — is never hidden.
  */
 
-import { api, type MemoryState, type OpsStatus } from './api.js';
+import { api, type OpsStatus } from './api.js';
+import { Chat } from './chat.js';
 import { el, poll, relativeTime, replace } from './dom.js';
 import { Orb, type OrbState } from './orb.js';
 import {
@@ -36,7 +37,7 @@ const rail = el('nav', { class: 'rail' });
 const topbar = el('header', { class: 'topbar' });
 const drawer = el('aside', { class: 'drawer' });
 
-const brandMark = el('span', { class: 'mark' });
+const brandMark = el('img', { class: 'mark', src: './naka.svg', alt: '' });
 const brand = el('div', { class: 'brand' }, brandMark, 'Naka');
 const statusLine = el('span', { class: 'muted' }, 'connecting…');
 const talkHint = el('span', { class: 'muted talk-hint' }, '');
@@ -98,14 +99,22 @@ const talk = new Talk({
   onLevel: (level) => {
     orb.setLevel(level);
   },
-  // The reply lands in the conversation as soon as the server has recorded
-  // it, rather than up to six seconds later on the next poll.
-  onTranscript: () => {
-    setTimeout(() => {
-      void api.memory().then(renderConversation);
-    }, 400);
+});
+
+const chat = new Chat({
+  // In the tray's window the tray is playing the answer: the server tells it
+  // to stop. Here the page is, so it stops its own sound as well.
+  onStop: () => {
+    if (!embedded) talk.interrupt();
+    void api.stopAgent().catch(() => null);
+  },
+  hint: () => {
+    const key = embedded ? trayKey : talk.key;
+    return key ? `Hold ${keyName(key)} to talk` : 'Talk';
   },
 });
+replace(convo.body, chat.root);
+convo.body.classList.add('chat-body');
 
 function paintTalk(): void {
   if (embedded) {
@@ -188,10 +197,7 @@ function ring(label: string): void {
 function resync(): void {
   refreshOpenSection();
   void refreshCounts().catch(() => null);
-  void api
-    .memory()
-    .then(renderConversation)
-    .catch(() => null);
+  void chat.load().catch(() => null);
 }
 
 listen({
@@ -200,7 +206,7 @@ listen({
     // besides re-reading; everything else is just "this changed".
     if (event.rang !== undefined) ring(event.rang);
     if (openSection?.topic === event.topic) refreshOpenSection();
-    if (event.topic === 'conversation') void api.memory().then(renderConversation);
+    chat.onEvent(event);
     if (event.topic === 'notes' || event.topic === 'timers') void refreshCounts();
     if (event.topic === 'client' && event.state !== undefined && embedded) {
       if (isTalkState(event.state)) talkState = event.state;
@@ -449,24 +455,6 @@ function renderLatest(state: OpsStatus): void {
   );
 }
 
-function renderConversation(state: MemoryState): void {
-  if (state.recent.length === 0) {
-    replace(convo.body, el('div', { class: 'empty' }, 'Nothing said yet.'));
-    return;
-  }
-  replace(
-    convo.body,
-    ...state.recent.map((turn) =>
-      el(
-        'div',
-        { class: 'turn' },
-        el('div', { class: 'bubble you' }, turn.user),
-        el('div', { class: 'bubble her' }, turn.naka),
-      ),
-    ),
-  );
-}
-
 poll(
   2000,
   async () => {
@@ -513,13 +501,13 @@ async function refreshCounts(): Promise<void> {
 poll(
   30000,
   async () => {
-    renderConversation(await api.memory());
+    await chat.load();
     // Cheap, and it means a tab left open picks up a settings change rather
     // than running forever on whatever it read when it loaded.
     void talk.refresh().then(paintTalk);
     await refreshCounts();
   },
   () => {
-    replace(convo.body, el('div', { class: 'empty' }, 'Cannot reach the server.'));
+    // The status line and the orb already say the server is unreachable.
   },
 );

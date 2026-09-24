@@ -1,8 +1,8 @@
-"""Draw Naka's icon and the installer's artwork, from the orb in the tray.
+"""Draw Naka's icon and the installer's artwork, from her logo.
 
-Generated rather than checked in: it is one sphere and a background, the
-colours belong with the rest of the theme, and a binary nobody can diff is a
-poor place to keep either.
+Generated from ui/public/naka.svg rather than checked in as images: the SVG
+is the one source for the face, and a binary nobody can diff is a poor place
+to keep a copy of it.
 
     python packaging\\assets.py build\\wizard
 
@@ -17,7 +17,7 @@ from PIL import Image, ImageDraw, ImageFilter
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from tray import orb  # noqa: E402  — after the path is set up
+from tray import logo, orb  # noqa: E402  — after the path is set up
 
 BACKGROUND = (7, 8, 11)
 ICON_SIZES = (16, 24, 32, 48, 64, 128, 256)
@@ -34,25 +34,25 @@ def glow(image: Image.Image, at: tuple[int, int], radius: int,
     image.alpha_composite(layer)
 
 
-def banner(width: int, height: int, orb_size: int) -> Image.Image:
+def banner(width: int, height: int, logo_size: int) -> Image.Image:
     image = Image.new("RGBA", (width, height), (*BACKGROUND, 255))
     glow(image, (int(width * 0.2), int(height * 0.18)), int(height * 0.45), (86, 62, 190), 150)
     glow(image, (int(width * 0.9), int(height * 0.85)), int(height * 0.4), (24, 60, 120), 110)
-    at = (round((width - orb_size) / 2), round(height * 0.34 - orb_size / 2))
-    # The orb throws a little light of its own, as it does in the panel.
-    glow(image, (at[0] + orb_size // 2, at[1] + orb_size // 2),
-         int(orb_size * 0.8), orb.VIOLET, 70)
-    image.alpha_composite(orb.draw(orb_size), at)
+    at = (round((width - logo_size) / 2), round(height * 0.34 - logo_size / 2))
+    # A little light behind the face, as the orb throws in the panel.
+    glow(image, (at[0] + logo_size // 2, at[1] + logo_size // 2),
+         int(logo_size * 0.8), orb.VIOLET, 70)
+    image.alpha_composite(logo.render(logo_size), at)
     return image
 
 
 def main(out: Path) -> None:
     out.mkdir(parents=True, exist_ok=True)
-    orb.draw(256).save(out / "naka.ico", sizes=[(s, s) for s in ICON_SIZES])
+    logo.render(256).save(out / "naka.ico", sizes=[(s, s) for s in ICON_SIZES])
     # Inno Setup's sizes at 100%; it scales them itself on a larger display.
-    banner(164, 314, 96).convert("RGB").save(out / "side.bmp")
+    banner(164, 314, 104).convert("RGB").save(out / "side.bmp")
     small = Image.new("RGBA", (55, 55), (*BACKGROUND, 255))
-    small.alpha_composite(orb.draw(44), (6, 6))
+    small.alpha_composite(logo.render(47), (4, 4))
     small.convert("RGB").save(out / "small.bmp")
     print(f"wrote naka.ico, side.bmp and small.bmp to {out}")
 

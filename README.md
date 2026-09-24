@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="ui/public/naka.svg" alt="Naka" width="200">
+
 # Naka
 
 **A voice assistant that lives on your graphics card.**

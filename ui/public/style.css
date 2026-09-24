@@ -90,7 +90,11 @@ body {
 
 .app {
   display: grid;
-  grid-template-columns: 320px 1fr var(--rail);
+  /* The conversation takes about a third of the window: wide enough to read
+     a paragraph and to type into, while the orb keeps the middle. */
+  /* minmax(0, 1fr): the middle may never be pushed wider than what is left,
+     or its cards shove the rail off the window. */
+  grid-template-columns: clamp(360px, 32vw, 520px) minmax(0, 1fr) var(--rail);
   grid-template-rows: 56px 1fr auto;
   grid-template-areas:
     'top    top    rail'
@@ -118,17 +122,10 @@ body {
 }
 
 .brand .mark {
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  background: conic-gradient(
-    from 210deg,
-    var(--accent),
-    var(--live),
-    var(--good),
-    var(--accent)
-  );
-  box-shadow: 0 0 16px rgba(124, 92, 255, 0.45);
+  width: 28px;
+  height: 28px;
+  filter: drop-shadow(0 0 10px rgba(124, 92, 255, 0.4));
+  transition: filter 0.3s;
 }
 
 .spacer {
@@ -182,28 +179,254 @@ body {
   grid-area: convo;
 }
 
+/* The conversation fills its panel: history above, composer below. The
+   scroller is column-reverse so it opens at the newest message and loading
+   older ones above does not move what is on screen. */
+.panel-body.chat-body {
+  padding: 0;
+  overflow: hidden;
+  display: flex;
+}
+
+.chat {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.chat-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column-reverse;
+  padding: 14px 14px 6px;
+}
+
+.chat-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+.chat-scroll::-webkit-scrollbar-thumb {
+  background: var(--line);
+  border-radius: 4px;
+}
+
+.chat-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.sentinel {
+  height: 1px;
+}
+
 .turn {
-  margin-bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.msg {
+  display: flex;
+  flex-direction: column;
+  max-width: 86%;
+  gap: 3px;
+}
+
+.msg.you {
+  align-self: flex-end;
+  align-items: flex-end;
+}
+
+.msg.her {
+  align-self: flex-start;
+  align-items: flex-start;
 }
 
 .bubble {
-  padding: 9px 12px;
-  border-radius: 11px;
+  padding: 8px 12px;
+  border-radius: 14px;
   font-size: 13px;
   line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
-.bubble.you {
-  background: rgba(124, 92, 255, 0.1);
-  border: 1px solid rgba(124, 92, 255, 0.22);
+.msg.you .bubble {
+  background: rgba(124, 92, 255, 0.16);
+  border: 1px solid rgba(124, 92, 255, 0.28);
   color: var(--ink);
+  border-bottom-right-radius: 4px;
 }
 
-.bubble.her {
-  background: rgba(255, 255, 255, 0.03);
+.msg.her .bubble {
+  background: rgba(255, 255, 255, 0.04);
   border: 1px solid var(--line-soft);
   color: var(--ink-dim);
-  margin-top: 6px;
+  border-bottom-left-radius: 4px;
+}
+
+.msg.her.cut .bubble {
+  border-style: dashed;
+}
+
+.bubble code {
+  font-family: ui-monospace, 'Cascadia Code', 'Fira Code', monospace;
+  font-size: 12px;
+  background: rgba(255, 255, 255, 0.06);
+  padding: 0 4px;
+  border-radius: 4px;
+}
+
+.msg .meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px;
+  font-size: 10.5px;
+  color: var(--ink-faint);
+  padding: 0 4px;
+}
+
+.msg .meta:empty {
+  display: none;
+}
+
+svg.icon.xs {
+  width: 11px;
+  height: 11px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--line-soft);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+/* Her turn while she is still thinking: three dots that breathe. */
+.typing {
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px 0;
+}
+
+.typing i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ink-faint);
+  animation: typing 1.2s infinite ease-in-out;
+}
+
+.typing i:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.typing i:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes typing {
+  0%,
+  60%,
+  100% {
+    opacity: 0.25;
+    transform: translateY(0);
+  }
+  30% {
+    opacity: 1;
+    transform: translateY(-3px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .typing i {
+    animation: none;
+    opacity: 0.6;
+  }
+}
+
+.chat-list .empty {
+  height: auto;
+  padding: 48px 12px;
+  gap: 4px;
+}
+
+/* display: grid above would otherwise override the hidden attribute. */
+.chat-list .empty[hidden] {
+  display: none;
+}
+
+.chat-note {
+  align-self: center;
+  font-size: 11.5px;
+  color: var(--warm);
+}
+
+.composer {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  padding: 10px 12px 12px;
+  border-top: 1px solid var(--line-soft);
+  flex: none;
+}
+
+.chat-input {
+  flex: 1;
+  resize: none;
+  min-height: 36px;
+  max-height: 140px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: rgba(0, 0, 0, 0.25);
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.45;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.chat-input {
+  box-sizing: border-box;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
+}
+
+.chat-input::-webkit-scrollbar {
+  width: 6px;
+}
+.chat-input::-webkit-scrollbar-button {
+  display: none;
+}
+.chat-input::-webkit-scrollbar-thumb {
+  background: var(--line);
+  border-radius: 3px;
+}
+
+.chat-input:focus {
+  border-color: rgba(124, 92, 255, 0.55);
+}
+
+.composer .icon-btn.send {
+  color: #b9a8ff;
+}
+
+.composer .icon-btn.stop {
+  color: var(--warm);
+}
+
+.composer .icon-btn[hidden] {
+  display: none;
 }
 
 .empty {
@@ -260,7 +483,9 @@ canvas.orb {
   grid-area: latest;
   display: grid;
   grid-auto-flow: column;
-  grid-auto-columns: minmax(150px, 1fr);
+  /* Five cards at 150px each no longer fit beside the wider conversation;
+     they shrink instead, and their text is cut rather than overflowing. */
+  grid-auto-columns: minmax(110px, 1fr);
   gap: 10px;
   height: 92px;
 }
@@ -291,6 +516,14 @@ canvas.orb {
   font-size: 15px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.card .label {
+  white-space: nowrap;
+  overflow: hidden;
 }
 
 .card .sub {
@@ -852,9 +1085,9 @@ button.key-field.listening {
 
 /* The push channel is down, so nothing will ring. Marked on the brand dot
    rather than as a banner: it is a background fact, not an event. */
+/* Unreachable: the face loses its colour, as it does in the tray. */
 body.offline .brand .mark {
-  background: var(--line);
-  box-shadow: none;
+  filter: grayscale(1) opacity(0.55);
 }
 
 /* ---------------------------------------------------------------- facts */
