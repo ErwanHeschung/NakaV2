@@ -58,8 +58,7 @@ Naka currently listens and speaks in English.
 
 If setup stops (a lost connection, a full disk), run Naka again and it picks up from the step that failed.
 
-> [!NOTE]
-> Installers are not published on the Releases page yet. To build one yourself, see [Building from source](#building-from-source).
+Download the latest installer from the [GitHub Releases page](https://github.com/ErwanHeschung/NakaV2/releases). To build one yourself, see [Building from source](#building-from-source).
 
 ## Using Naka
 
