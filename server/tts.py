@@ -6,6 +6,7 @@ Opus stream the client can play as it arrives.
 """
 
 import io
+import re
 
 import av
 import numpy as np
@@ -41,8 +42,30 @@ def resolve_voice(spec: str) -> str | torch.Tensor:
     return blended
 
 
+# Markdown the model writes out of habit, and Kokoro reads aloud: *Hollow
+# Knight* came out as "asterisk Hollow Knight asterisk".
+_LINK = re.compile(r"\[([^\]]+)\]\([^)]*\)")
+_URL = re.compile(r"https?://\S+")
+_MARKUP = re.compile(r"[*_`#~|]+|^\s*[-•>]\s+", re.MULTILINE)
+
+
+def speakable(text: str) -> str:
+    """The sentence as it should sound: formatting gone, the words kept."""
+    text = _LINK.sub(r"\1", text)
+    text = _URL.sub("", text)
+    # Underscores inside a word are part of it (snake_case, file_name.txt);
+    # only the ones used for emphasis go, which the pattern above cannot
+    # tell apart, so keep them where letters sit on both sides.
+    text = re.sub(r"(?<=\w)_(?=\w)", "\x00", text)
+    text = _MARKUP.sub("", text).replace("\x00", "_")
+    return " ".join(text.split())
+
+
 def synthesize(text: str, apply_dsp: bool = True) -> np.ndarray:
     """Synthesise one sentence to mono float32 at the TTS sample rate."""
+    text = speakable(text)
+    if not text:
+        return np.zeros(0, dtype=np.float32)
     voice = resolve_voice(settings.VOICE["voice"]["name"])
     chunks = [audio for _, _, audio in models.tts(text, voice=voice)]
     if not chunks:

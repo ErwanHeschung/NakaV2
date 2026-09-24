@@ -388,6 +388,10 @@ openFromHash();
 
 /* ------------------------------------------------------------ live status */
 
+// How long after the page opens an unanswered status counts as starting
+// rather than broken. A cold start has taken up to forty seconds.
+const STARTUP_GRACE_MS = 90_000;
+
 // Counts for the strip. They change slowly, so they ride the slower poll
 // below rather than the two-second one that drives the orb.
 let noteCount: number | null = null;
@@ -401,6 +405,11 @@ const TALKING: Partial<Record<TalkState, { orbState: OrbState; what: string }>> 
 };
 
 function describe(state: OpsStatus): { orbState: OrbState; what: string } {
+  // Ahead of talking: a request made while the models load is waiting on the
+  // load, and "Thinking" for twenty seconds says nothing about why.
+  if (state.loading) {
+    return { orbState: 'thinking', what: `Waking up · ${state.loading.step}` };
+  }
   const talking = TALKING[talkState];
   if (talking) return talking;
   if (state.in_flight > 0) return { orbState: 'thinking', what: 'Working' };
@@ -465,9 +474,11 @@ poll(
     const { orbState, what } = describe(state);
     orb.setState(orbState);
     orbWhat.textContent = what;
-    orbDetail.textContent =
-      `${(state.vram_free_mb / 1024).toFixed(1)} GB free` +
-      (state.in_flight > 0 ? ` · ${state.in_flight} in flight` : '');
+    const load = state.loading;
+    orbDetail.textContent = load
+      ? `step ${load.index} of ${load.total} · ${load.seconds}s so far`
+      : `${(state.vram_free_mb / 1024).toFixed(1)} GB free` +
+        (state.in_flight > 0 ? ` · ${state.in_flight} in flight` : '');
     statusLine.textContent = '';
     statusLine.append(
       el('span', { class: `dot ${orbState === 'sleeping' ? '' : 'on'}` }),
@@ -477,8 +488,13 @@ poll(
   },
   (error) => {
     orb.setState('sleeping');
-    orbWhat.textContent = 'Server unreachable';
-    orbDetail.textContent = String(error).slice(0, 80);
+    // The page can be open before the server is, and the first seconds of
+    // a start are Python loading its libraries: that is not a failure.
+    const starting = performance.now() < STARTUP_GRACE_MS;
+    orbWhat.textContent = starting ? 'Starting Naka' : 'Server unreachable';
+    orbDetail.textContent = starting
+      ? `loading the speech libraries · ${Math.round(performance.now() / 1000)}s`
+      : String(error).slice(0, 80);
   },
 );
 

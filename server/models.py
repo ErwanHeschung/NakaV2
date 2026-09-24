@@ -30,17 +30,24 @@ tts: KPipeline | None = None
 load_error: str | None = None
 
 
-def load() -> None:
-    global stt, tts
-
+def load_stt() -> None:
+    global stt
     start = time.perf_counter()
     stt = WhisperModel(settings.STT["model"], device="cuda",
                        compute_type=settings.STT["compute_type"])
     log.info("stt loaded in %.1fs", time.perf_counter() - start)
 
+
+def load_tts() -> None:
+    global tts
     start = time.perf_counter()
     tts = KPipeline(lang_code=settings.TTS["lang_code"], device="cuda")
     log.info("tts loaded in %.1fs", time.perf_counter() - start)
+
+
+def load() -> None:
+    load_stt()
+    load_tts()
 
 
 def warmup() -> None:

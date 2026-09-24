@@ -41,6 +41,19 @@ from .voice import Voice
 
 log = logging.getLogger("naka.tray")
 
+# Shown until the server answers, which is mostly Python importing torch and
+# the speech libraries: about twenty seconds on a cold start, and a blank
+# "Starting…" for that long read as a hang.
+STARTING_PAGE = """<body style="background:#07080b;color:#9aa1b2;font:14px sans-serif;
+display:grid;place-items:center;height:100vh;margin:0"><div style="text-align:center">
+<div style="color:#e6e8ee;font-size:16px;margin-bottom:8px">Starting Naka</div>
+<div>Loading the speech and language libraries. This takes about twenty seconds
+the first time after the computer starts.</div>
+<div id="t" style="margin-top:12px;opacity:.7">0s</div></div>
+<script>let s=0;setInterval(()=>{document.getElementById('t').textContent=(++s)+'s'},1000)</script>
+</body>"""
+
+
 def _icon_image(state: str) -> Image.Image:
     """Cached: pystray asks for the icon on every state change, and drawing a
     sphere four times oversampled is not free at that rate."""
@@ -100,18 +113,19 @@ def main() -> None:
     icon: pystray.Icon | None = None
     window = webview.create_window(
         settings.IDENTITY.get("assistant", "Naka"),
-        html="<body style='background:#07080b;color:#9aa1b2;font:14px sans-serif;"
-             "display:grid;place-items:center;height:100vh;margin:0'>Starting…</body>",
+        html=STARTING_PAGE,
         width=1280, height=820, min_size=(900, 600), hidden=args.hidden,
         # Painted before WebView2 has drawn anything, so opening the window
         # does not flash white first.
         background_color=theme.BACKGROUND,
     )
 
-    def repaint(state: str) -> None:
+    def repaint(state: str, detail: str = "") -> None:
         if icon is not None:
             icon.icon = _icon_image(state)
-            icon.title = f"{settings.IDENTITY.get('assistant', 'Naka')} — {state}"
+            # The tooltip is capped at 127 characters by Windows.
+            icon.title = (f"{settings.IDENTITY.get('assistant', 'Naka')} — "
+                          f"{detail or state}")[:127]
 
     server = Server(port, on_change=repaint)
     voice = Voice(base, on_state=repaint,
@@ -205,6 +219,15 @@ def main() -> None:
                         event = json.loads(line[6:])
                         if event.get("topic") == "settings":
                             voice.refresh_config()
+                        elif event.get("topic") == "ops":
+                            # A model load: say which step, so hovering the
+                            # icon answers "why isn't she answering yet".
+                            phase = event.get("phase")
+                            if phase:
+                                repaint("thinking", f"waking up: {phase} "
+                                        f"({event.get('index')}/{event.get('total')})")
+                            else:
+                                repaint("ready")
                         elif event.get("topic") == "client" and event.get("show"):
                             show()
             except (httpx.HTTPError, ValueError):

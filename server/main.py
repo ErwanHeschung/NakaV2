@@ -89,22 +89,17 @@ async def lifespan(app: FastAPI):
     # Publishing is safe from any thread once this is set, which matters
     # because tools run in a worker.
     events.bind(asyncio.get_running_loop())
-    # A failure here used to take the whole server down at startup with a
-    # traceback — in an app with no console, a server that silently never
-    # comes up. It now starts degraded instead, so /health and the panel can
-    # say what is wrong: most often, no usable CUDA device.
-    try:
-        models.load()
-        models.warmup()
-        models.load_error = None
-    except Exception as e:
-        models.load_error = f"{type(e).__name__}: {e}"
-        log.exception("speech models failed to load; starting degraded")
+    # The speech models load in the background: the server answers from the
+    # first second, so the panel and tray can show the load's progress rather
+    # than a dead connection, and a failure leaves it running degraded with
+    # /health saying why (most often, no usable CUDA device).
+    speech = asyncio.create_task(ops.load_speech())
     watcher = asyncio.create_task(ops.idle_watcher())
     pruning = asyncio.create_task(logprune.pruner())
     ringing = asyncio.create_task(timer_watcher())
     log.info("ready on %s:%s", settings.SERVER["host"], settings.SERVER["port"])
     yield
+    speech.cancel()
     watcher.cancel()
     pruning.cancel()
     ringing.cancel()
@@ -202,6 +197,7 @@ async def events_stream():
 @app.get("/health")
 async def health():
     return {"status": "ok" if models.load_error is None else "degraded",
+            "loading": ops.loading(),
             "stt": models.stt is not None, "tts": models.tts is not None,
             "error": models.load_error}
 

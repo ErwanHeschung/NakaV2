@@ -16,6 +16,8 @@ export interface OpsStatus {
   idle_seconds: number;
   in_flight: number;
   transition_locked: boolean;
+  /** The step a model load is on, or null when nothing is loading. */
+  loading: { step: string; index: number; total: number; seconds: number } | null;
 }
 
 export interface MemoryState {

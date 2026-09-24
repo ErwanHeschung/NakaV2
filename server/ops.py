@@ -26,7 +26,7 @@ from pathlib import Path
 
 import torch
 
-from . import llamacpp, models, winjob
+from . import events, llamacpp, models, winjob
 
 log = logging.getLogger("naka.ops")
 server_log = logging.getLogger("naka.llm.server")
@@ -81,6 +81,32 @@ _SPAWN_FLAGS = (_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP
 # pre-warming from the client and a request arriving a moment later would both
 # start a load, and each would pay the full cost.
 _transition = asyncio.Lock()
+
+# What a load is doing right now, for the panel and the tray. Loading takes
+# anywhere from six seconds (a warm wake) to forty (a cold start), and with
+# nothing saying why, that was forty seconds of an assistant that seemed
+# broken.
+_phase: dict | None = None
+
+
+def _set_phase(step: str | None, index: int = 0, total: int = 0) -> None:
+    global _phase
+    if step is None:
+        _phase = None
+    else:
+        began = _phase["began"] if _phase else time.monotonic()
+        _phase = {"step": step, "index": index, "total": total, "began": began}
+        log.info("loading: %s (%d/%d)", step, index, total)
+    events.publish("ops", phase=step, index=index, total=total)
+
+
+def loading() -> dict | None:
+    """The current load step, or None when nothing is loading."""
+    if _phase is None:
+        return None
+    return {"step": _phase["step"], "index": _phase["index"],
+            "total": _phase["total"],
+            "seconds": round(time.monotonic() - _phase["began"])}
 _last_activity = time.monotonic()
 # Requests currently being served. The idle watcher must not pull the models
 # out from under one, and a long reload must not count as idle time.
@@ -339,6 +365,38 @@ async def load() -> dict:
         return await _load_locked()
 
 
+async def _load_speech_locked(first: int, total: int) -> None:
+    """Whisper, then Kokoro, then a warm-up pass, each announced."""
+    if models.stt is None:
+        _set_phase("Loading speech recognition", first, total)
+        await asyncio.to_thread(models.load_stt)
+    if models.tts is None:
+        _set_phase("Loading the voice", first + 1, total)
+        await asyncio.to_thread(models.load_tts)
+    _set_phase("Warming up", first + 2, total)
+    await asyncio.to_thread(models.warmup)
+
+
+async def load_speech() -> None:
+    """The speech models, at server start, in the background.
+
+    They used to load inside the server's startup, before it answered
+    anything: twenty seconds in which the panel could only say the server
+    was unreachable. Now the server answers at once and reports this as it
+    goes; a request that needs the models waits on the same lock.
+    """
+    async with _transition:
+        try:
+            await _load_speech_locked(1, 3)
+            models.load_error = None
+        except Exception as e:
+            models.load_error = f"{type(e).__name__}: {e}"
+            log.exception("speech models failed to load; running degraded")
+        finally:
+            _set_phase(None)
+        touch()
+
+
 async def _load_locked() -> dict:
     global _llm_up
     before = await asyncio.to_thread(_vram_mb)
@@ -346,14 +404,29 @@ async def _load_locked() -> dict:
 
     # Each half is brought up only if it is actually missing, so waking one
     # does not needlessly reload the other.
-    if not (_llm_alive() and _llm_up):
-        started = await _start_llm()
-        _llm_up = await _await_llm() if started else False
+    need_llm = not (_llm_alive() and _llm_up)
+    need_speech = models.stt is None or models.tts is None
+    total = need_llm + 3 * need_speech
+    try:
+        # Started first and awaited last: llama-server reads its 7 GB from
+        # disk in its own process while Whisper and Kokoro load in this one,
+        # instead of the two waiting on each other.
+        waiting = None
+        if need_llm:
+            _set_phase("Starting the language model", 1, total)
+            if await _start_llm():
+                waiting = asyncio.create_task(_await_llm())
+            else:
+                _llm_up = False
+        if need_speech:
+            await _load_speech_locked(1 + need_llm, total)
+        if waiting is not None:
+            if not waiting.done():
+                _set_phase("Starting the language model", total, total)
+            _llm_up = await waiting
+    finally:
+        _set_phase(None)
     llm_ready = _llm_up
-
-    if models.stt is None or models.tts is None:
-        await asyncio.to_thread(models.load)
-        await asyncio.to_thread(models.warmup)
 
     after = await asyncio.to_thread(_vram_mb)
     elapsed = (time.perf_counter() - start) * 1000
@@ -386,6 +459,8 @@ async def status() -> dict:
         "idle_seconds": round(idle_seconds()),
         "in_flight": _in_flight,
         "transition_locked": _transition.locked(),
+        # Which step a load is on, so a wait can say what it is waiting for.
+        "loading": loading(),
         # And these are why the language model is down, when it is.
         "llm_pid": _llm.pid if _llm_alive() else None,
         "llm_exit_code": _llm_exit,
