@@ -8,6 +8,7 @@ speaking before the whole reply exists.
 
 import json
 import logging
+import time
 from collections.abc import AsyncIterator
 
 import httpx
@@ -42,6 +43,23 @@ def client() -> httpx.AsyncClient:
     return _client
 
 
+# llama.cpp's own account of the last streamed generation: how many prompt
+# tokens it had to compute, how many came from its cache, and how long the
+# prompt took. Logged, and read by eval/pipeline_bench.py.
+last_timings: dict = {}
+
+
+def _note_timings(chunk: dict) -> None:
+    timings = chunk.get("timings")
+    if not timings:
+        return
+    last_timings.clear()
+    last_timings.update(timings)
+    log.info("llm prompt: %s new tokens, %s cached, %.0fms",
+             timings.get("prompt_n"), timings.get("cache_n"),
+             timings.get("prompt_ms", 0))
+
+
 async def aclose() -> None:
     global _client
     if _client is not None:
@@ -63,27 +81,13 @@ def _body(messages: list[dict], stream: bool,
 
 
 async def stream_sentences(messages: list[dict]) -> AsyncIterator[str]:
-    """Yield complete sentences as soon as their closing punctuation arrives."""
-    url = f"{settings.LLM['url'].rstrip('/')}/v1/chat/completions"
-    segmenter = speech.Segmenter()
+    """Yield complete sentences as soon as their closing punctuation arrives.
 
-    async with client().stream("POST", url, json=_body(messages, True)) as response:
-        response.raise_for_status()
-        async for line in response.aiter_lines():
-            if not line.startswith("data: "):
-                continue
-            payload = line[6:]
-            if payload == "[DONE]":
-                break
-            delta = json.loads(payload)["choices"][0].get("delta", {})
-            piece = delta.get("content")
-            if not piece:
-                continue
-            for segment in segmenter.feed(piece):
-                yield segment
-
-    for segment in segmenter.flush():
-        yield segment
+    The tool-less case of stream_with_tools, which does the same parsing.
+    """
+    async for kind, payload in stream_with_tools(messages, []):
+        if kind == "sentence":
+            yield payload
 
 
 async def complete(messages: list[dict]) -> str:
@@ -129,7 +133,11 @@ async def stream_with_tools(messages: list[dict], tools: list[dict],
             payload = line[6:]
             if payload == "[DONE]":
                 break
-            choice = json.loads(payload)["choices"][0]
+            chunk = json.loads(payload)
+            _note_timings(chunk)
+            if not chunk.get("choices"):
+                continue
+            choice = chunk["choices"][0]
             finish = choice.get("finish_reason") or finish
             delta = choice.get("delta", {})
 
@@ -157,6 +165,17 @@ async def stream_with_tools(messages: list[dict], tools: list[dict],
     if partial:
         yield "tool_calls", [partial[i] for i in sorted(partial)]
     yield "finish", finish
+
+
+async def prefill(messages: list[dict], tools: list[dict]) -> None:
+    """One token's generation, for the side effect of a cached prompt."""
+    url = f"{settings.LLM['url'].rstrip('/')}/v1/chat/completions"
+    body = _body(messages, stream=False, max_tokens=1)
+    if tools:
+        body["tools"] = tools
+    start = time.perf_counter()
+    (await client().post(url, json=body)).raise_for_status()
+    log.info("prompt prefilled in %.0fms", (time.perf_counter() - start) * 1000)
 
 
 def split_sentences(text: str) -> list[str]:

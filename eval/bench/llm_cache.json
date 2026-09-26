@@ -1,0 +1,298 @@
+[
+ {
+  "config": "base",
+  "vram_mb": 9700,
+  "ttft_first": 1043.1668999990507,
+  "ttft_median": 413.2360499988863,
+  "evaluated_median": 555.5,
+  "cached_median": 3908.5,
+  "prompt_ms_median": 286.95000000000005,
+  "turns": [
+   {
+    "ttft": 1043.1668999990507,
+    "text": "Oh\u2014hey. I'm doing well, just hanging out in the circuits. How's your Saturday treating you?",
+    "called": false,
+    "prompt_n": 4291,
+    "cache_n": 0,
+    "prompt_ms": 1015.375,
+    "bg_ms": 289.7263999984716
+   },
+   {
+    "ttft": 431.32820000028005,
+    "text": "Hmm. That depends... are we looking for something that actually makes you think, or do you just want to turn your brain off for a bit? I could check what's in your Steam library if you want a nudge.",
+    "called": false,
+    "prompt_n": 564,
+    "cache_n": 3774,
+    "prompt_ms": 288.88,
+    "bg_ms": 323.1315999983053
+   },
+   {
+    "ttft": 393.0393999980879,
+    "text": "It's 8:14 p.m. \u2014 getting a bit late, isn't it?",
+    "called": false,
+    "prompt_n": 580,
+    "cache_n": 3821,
+    "prompt_ms": 288.735,
+    "bg_ms": 358.2301999995252
+   },
+   {
+    "ttft": 509.578799999872,
+    "text": "(called a tool)",
+    "called": true,
+    "prompt_n": 566,
+    "cache_n": 3884,
+    "prompt_ms": 289.436,
+    "bg_ms": 577.2247999993851
+   },
+   {
+    "ttft": 458.90090000102646,
+    "text": "(called a tool)",
+    "called": true,
+    "prompt_n": 542,
+    "cache_n": 3933,
+    "prompt_ms": 278.885,
+    "bg_ms": 428.7187999980233
+   },
+   {
+    "ttft": 395.14389999749255,
+    "text": "The pasta. You wanted ten minutes on it.",
+    "called": false,
+    "prompt_n": 541,
+    "cache_n": 3958,
+    "prompt_ms": 285.165,
+    "bg_ms": 465.80399999947986
+   },
+   {
+    "ttft": 394.5531999997911,
+    "text": "Oh, they're fascinating. They actually have three hearts\u2014two to pump blood to the gills and one for the rest of the body.",
+    "called": false,
+    "prompt_n": 547,
+    "cache_n": 3982,
+    "prompt_ms": 282.203,
+    "bg_ms": 506.1839999980293
+   }
+  ]
+ },
+ {
+  "config": "checkpoints",
+  "vram_mb": 9700,
+  "ttft_first": 1044.205599999259,
+  "ttft_median": 438.0189999992581,
+  "evaluated_median": 138.5,
+  "cached_median": 4320.0,
+  "prompt_ms_median": 277.3795,
+  "turns": [
+   {
+    "ttft": 1044.205599999259,
+    "text": "Oh\u2014hey. I'm doing well, just hanging out in the circuits. How's your Saturday treating you?",
+    "called": false,
+    "prompt_n": 4291,
+    "cache_n": 0,
+    "prompt_ms": 1015.628,
+    "bg_ms": 290.6139999977313
+   },
+   {
+    "ttft": 490.4229999992822,
+    "text": "Hmm. That depends\u2014are we looking for something that actually makes you think, or do you just want to turn your brain off for a bit? I could check what's in your Steam library if you want a reminder.",
+    "called": false,
+    "prompt_n": 564,
+    "cache_n": 3774,
+    "prompt_ms": 351.686,
+    "bg_ms": 361.53360000025714
+   },
+   {
+    "ttft": 358.66920000262326,
+    "text": "It's 8:14 p.m. \u2014 getting late, isn't it?",
+    "called": false,
+    "prompt_n": 158,
+    "cache_n": 4243,
+    "prompt_ms": 254.994,
+    "bg_ms": 432.966899999883
+   },
+   {
+    "ttft": 470.5197000002954,
+    "text": "(called a tool)",
+    "called": true,
+    "prompt_n": 162,
+    "cache_n": 4286,
+    "prompt_ms": 247.846,
+    "bg_ms": 670.2345999983663
+   },
+   {
+    "ttft": 424.9763999978313,
+    "text": "(called a tool)",
+    "called": true,
+    "prompt_n": 119,
+    "cache_n": 4354,
+    "prompt_ms": 245.356,
+    "bg_ms": 639.690400003019
+   },
+   {
+    "ttft": 436.8501999997534,
+    "text": "The pasta. You wanted ten minutes on that.",
+    "called": false,
+    "prompt_n": 105,
+    "cache_n": 4392,
+    "prompt_ms": 305.393,
+    "bg_ms": 838.6800999978732
+   },
+   {
+    "ttft": 439.1877999987628,
+    "text": "Oh, they're fascinating. They actually have three hearts\u2014two to pump blood to the gills and one for the rest of the body.",
+    "called": false,
+    "prompt_n": 104,
+    "cache_n": 4423,
+    "prompt_ms": 299.765,
+    "bg_ms": 811.6344000009121
+   }
+  ]
+ },
+ {
+  "config": "checkpoints-256",
+  "vram_mb": 9700,
+  "ttft_first": 1042.9380999994464,
+  "ttft_median": 400.965200000428,
+  "evaluated_median": 246.5,
+  "cached_median": 4240.5,
+  "prompt_ms_median": 242.1465,
+  "turns": [
+   {
+    "ttft": 1042.9380999994464,
+    "text": "Oh\u2014hey. I'm doing well, just hanging out in the circuits. How's your Saturday treating you?",
+    "called": false,
+    "prompt_n": 4291,
+    "cache_n": 0,
+    "prompt_ms": 1015.244,
+    "bg_ms": 289.7415000006731
+   },
+   {
+    "ttft": 483.94180000104825,
+    "text": "Hmm. That depends\u2014are we looking for something that actually makes you think, or do you just want to turn your brain off for a bit? I could check what's in your Steam library if you want a reminder.",
+    "called": false,
+    "prompt_n": 564,
+    "cache_n": 3774,
+    "prompt_ms": 344.662,
+    "bg_ms": 350.40730000037
+   },
+   {
+    "ttft": 316.631800000323,
+    "text": "It's 8:14 p.m. \u2014 getting a bit late, isn't it?",
+    "called": false,
+    "prompt_n": 158,
+    "cache_n": 4243,
+    "prompt_ms": 213.931,
+    "bg_ms": 403.48660000017844
+   },
+   {
+    "ttft": 425.1932000006491,
+    "text": "(called a tool)",
+    "called": true,
+    "prompt_n": 208,
+    "cache_n": 4242,
+    "prompt_ms": 206.258,
+    "bg_ms": 552.797800002736
+   },
+   {
+    "ttft": 428.40760000035516,
+    "text": "(called a tool)",
+    "called": true,
+    "prompt_n": 234,
+    "cache_n": 4241,
+    "prompt_ms": 247.191,
+    "bg_ms": 374.16310000116937
+   },
+   {
+    "ttft": 349.72149999885005,
+    "text": "The pasta. You wanted ten minutes on it.",
+    "called": false,
+    "prompt_n": 259,
+    "cache_n": 4240,
+    "prompt_ms": 237.102,
+    "bg_ms": 376.7301000007137
+   },
+   {
+    "ttft": 376.73720000020694,
+    "text": "Oh, they're fascinating. They actually have three hearts\u2014two to pump blood to the gills and one for the rest of the body.",
+    "called": false,
+    "prompt_n": 290,
+    "cache_n": 4239,
+    "prompt_ms": 262.205,
+    "bg_ms": 378.8727999999537
+   }
+  ]
+ },
+ {
+  "config": "swa-full",
+  "vram_mb": 11786,
+  "ttft_first": 969.5393000001786,
+  "ttft_median": 134.76914999955625,
+  "evaluated_median": 86.0,
+  "cached_median": 4372.0,
+  "prompt_ms_median": 31.994500000000002,
+  "turns": [
+   {
+    "ttft": 969.5393000001786,
+    "text": "Oh\u2014hey. I'm doing well, just hanging out in the circuits. How's your Saturday treating you?",
+    "called": false,
+    "prompt_n": 4291,
+    "cache_n": 0,
+    "prompt_ms": 941.418,
+    "bg_ms": 152.9249000013806
+   },
+   {
+    "ttft": 156.59429999868735,
+    "text": "Hmm. That depends on the vibe\u2014are you looking to actually *do* something, or just zone out for a bit? I could check what's in your Steam library if you want a nudge.",
+    "called": false,
+    "prompt_n": 93,
+    "cache_n": 4245,
+    "prompt_ms": 33.439,
+    "bg_ms": 116.69849999816506
+   },
+   {
+    "ttft": 111.6269000012835,
+    "text": "It's 8:14 p.m. \u2014 getting a bit late, isn't it?",
+    "called": false,
+    "prompt_n": 109,
+    "cache_n": 4288,
+    "prompt_ms": 37.024,
+    "bg_ms": 111.42180000024382
+   },
+   {
+    "ttft": 225.56510000140406,
+    "text": "(called a tool)",
+    "called": true,
+    "prompt_n": 94,
+    "cache_n": 4352,
+    "prompt_ms": 33.496,
+    "bg_ms": 280.7434000023932
+   },
+   {
+    "ttft": 179.6303999981319,
+    "text": "(called a tool)",
+    "called": true,
+    "prompt_n": 79,
+    "cache_n": 4392,
+    "prompt_ms": 30.366,
+    "bg_ms": 113.176899998507
+   },
+   {
+    "ttft": 110.40330000105314,
+    "text": "The pasta. You wanted ten minutes on it.",
+    "called": false,
+    "prompt_n": 72,
+    "cache_n": 4423,
+    "prompt_ms": 30.366,
+    "bg_ms": 108.94239999834099
+   },
+   {
+    "ttft": 112.94400000042515,
+    "text": "Oh, they're fascinating. They actually have three hearts\u2014two to pump blood to the gills and one for the rest of the body.",
+    "called": false,
+    "prompt_n": 77,
+    "cache_n": 4448,
+    "prompt_ms": 30.55,
+    "bg_ms": 114.40120000042953
+   }
+  ]
+ }
+]

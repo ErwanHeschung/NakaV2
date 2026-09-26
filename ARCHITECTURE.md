@@ -28,8 +28,8 @@ Each parent puts its children in a Windows job object with kill on close (`serve
 
 1. **Capture.** The tray's keyboard hook sees the talk key go down and calls `/ops/wake`, so any model reload overlaps with the person speaking. Audio is recorded while the key is held (`client/audio.py`).
 2. **Speech to text.** `/converse` receives a WAV. faster-whisper `large-v3-turbo` transcribes it, with the language forced rather than detected (`server/stt.py`).
-3. **Prompt.** `server/memory.py` assembles persona, facts, summary and recent turns, stable parts first so llama.cpp can reuse its cached prefix. The clock and wake notes go just before the user's message for the same reason.
-4. **Language model.** The reply streams from llama-server and is cut into sentences as they complete (`server/llm.py`). With tools on, the first delta already says whether the model is speaking or calling a tool, so offering tools costs no waiting.
+3. **Prompt.** `server/memory.py` assembles it in order of how often each part changes, so llama.cpp can reuse its cached prefix: the persona (which the chat template follows with about 3,000 tokens of tool declarations), then facts and summary in a message of their own, then the recent turns, then the clock and wake notes just before the user's message. Facts and summary used to sit inside the persona's message, before the tools, so every fact learnt made llama.cpp recompute the whole prompt, about 5,400 tokens, on the next turn.
+4. **Language model.** The reply streams from llama-server and is cut into sentences as they complete (`server/llm.py`). With tools on, the first delta already says whether the model is speaking or calling a tool, so offering tools costs no waiting. llama-server keeps its full sliding-window cache by default (its `swa-full` option, `[llm] swa_full` in the settings): Gemma's sliding-window layers keep their whole cache, so a turn reuses almost all of the previous prompt instead of recomputing its last ~500 tokens, for about 2 GB more VRAM. llama.cpp's prompt counters for each generation are logged as `llm prompt: N new tokens, M cached`.
 5. **Speech.** The reply is cut into segments by `server/speech.py`: at sentence ends and line breaks, with a code block kept whole, and with the whitespace kept so the chat can render the Markdown as written. What the voice gets is a filtered copy of each segment, without code, links, tables, full paths or hashes; a code block is replaced by one spoken "I've put the code in the chat". Each segment is synthesised by Kokoro as soon as it exists (`server/tts.py`), then passed through the voice chain (`server/dsp.py`: pitch and formant shift, EQ, chorus, compression, limiter) built on PyAV filters.
 6. **Playback.** Audio streams back as raw PCM for the tray and panel, or Ogg Opus for the terminal client, so the first sentence plays while the rest is still being written.
 7. **Afterwards.** The turn is logged (`server/turnlog.py`), and memory is reconciled in the background: facts added or revised, the summary rolled forward.
@@ -93,7 +93,7 @@ It reads state over plain HTTP endpoints (`server/panel.py`) and listens on `/ev
 
 ## GPU residency
 
-Naka holds about 9.5 GB of VRAM: roughly 7.7 GB for llama-server and 1.7 GB for Whisper and Kokoro. Loading costs about 8 seconds, so the models stay resident while in use, and `server/ops.py` releases them after a configurable idle period or on request from the tray. The talk key starts the reload, so most of it is absorbed while the person is still speaking.
+Naka holds about 11.5 GB of VRAM: roughly 9.8 GB for llama-server (7.7 GB without the full sliding-window cache) and 1.7 GB for Whisper and Kokoro. Loading costs a few seconds, so the models stay resident while in use, and `server/ops.py` releases them after a configurable idle period or on request from the tray. The talk key starts the reload, so most of it is absorbed while the person is still speaking. Once llama-server answers, the fixed part of the prompt (persona, facts, tool declarations) is computed while the speech models are still loading (`agent.prefill`), so the first turn after a reload does not pay for it: its first sentence arrives in about 0.3 s instead of 1.8 s.
 
 Operational controls (`/ops/*`) are deliberately not tools: the model cannot unload itself or stop its own server.
 
@@ -138,7 +138,11 @@ scripts/       naka.ps1 and notes on running from a checkout
 |:-|:-|
 | `uv run python eval\test_guardrails.py` | The agent's guardrails with scripted model replies, and real PowerShell for classification, timeouts and the kill switch |
 | `uv run python eval\regression.py` | Reference phrases replayed through the running server: nothing stopped answering, got slow or lost its voice |
-| `uv run python eval\e2e_bench.py` | Time to first sound |
+| `uv run python eval\test_turns.py` | The three ways a turn arrives (typed, spoken, Telegram), end to end without models: what is recorded, remembered, and kept when a reply is cut off or fails |
+| `uv run python eval\pipeline_bench.py LABEL` | Time to first sound stage by stage (speech to text, first sentence, Kokoro, DSP) over a 16-turn spoken conversation, with the memory doing what it does between real turns |
+| `uv run python eval\llm_cache_bench.py` | How much of each prompt llama-server recomputes, for several server configurations |
+| `uv run python eval\reload_bench.py` | The first turn after the language model reloads, with and without the prompt prefilled |
+| `uv run python eval\e2e_bench.py` | Phase 0's time to first sound, components alone |
 | `npm run check` in `ui/` | Types, lint and formatting of the panel |
 
 Benchmarks and the decisions they led to (Gemma over Qwen3, Kokoro over Chatterbox, reasoning tokens off) are written up in [eval/RESULTS.md](eval/RESULTS.md).

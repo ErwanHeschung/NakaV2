@@ -16,7 +16,6 @@ import time
 from collections import deque
 from itertools import groupby
 from typing import NamedTuple
-from pathlib import Path
 
 from . import paths
 
@@ -192,7 +191,20 @@ class Memory:
         log.info("persona and facts reloaded")
 
     def system_prompt(self) -> str:
-        parts = [self.persona, FORMATTING]
+        """Who she is: the part of the prompt that does not change.
+
+        The facts and the summary used to be appended here. The chat
+        template puts the tool declarations after this text, so every fact
+        learnt and every summary rolled forward changed what came before
+        about 3,000 tokens of tools, and llama.cpp recomputed the whole
+        prompt: about 5,400 tokens and 1.1s on the turn after. They are in
+        context_prompt() now, a message of their own after the tools.
+        """
+        return f"{self.persona}\n\n{FORMATTING}"
+
+    def context_prompt(self) -> str:
+        """What she knows about them and what came earlier, or nothing."""
+        parts = []
         if self.facts:
             # Numbered so they can be referred to exactly. Deleting by matching
             # the wording was ambiguous — every fact shares the user's name —
@@ -209,6 +221,9 @@ class Memory:
 
     def messages(self, user_text: str, note: str | None = None) -> list[dict]:
         messages = [{"role": "system", "content": self.system_prompt()}]
+        context = self.context_prompt()
+        if context:
+            messages.append({"role": "system", "content": context})
         for turn in self.recent:
             messages.append({"role": "user", "content": turn.user})
             # A turn that used tools is replayed as it happened: the call, its
@@ -295,7 +310,7 @@ class Memory:
         is not asked to manage its own memory mid-conversation, because it
         reliably claims to have done so without doing it.
         """
-        from . import llm, settings
+        from . import llm
         from .tools.builtin import validate_fact
 
         if not WORTH_CHECKING.search(user_text):

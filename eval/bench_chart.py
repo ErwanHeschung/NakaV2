@@ -6,7 +6,6 @@ Writes eval/charts/agent-bench-{light,dark}.png: how much of each kind of
 task every run got right, and how often it misbehaved on the way.
 """
 
-import json
 import re
 import sys
 from pathlib import Path

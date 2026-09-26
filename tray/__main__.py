@@ -26,7 +26,6 @@ import os
 import sys
 import threading
 import time
-from pathlib import Path
 
 import httpx
 import pystray

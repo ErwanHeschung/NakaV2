@@ -7,7 +7,6 @@ actually given, what it said, which tools ran, and where the time went.
 
 import json
 import logging
-from pathlib import Path
 from datetime import datetime
 
 from . import paths

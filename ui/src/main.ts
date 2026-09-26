@@ -11,16 +11,13 @@ import { api, type OpsStatus } from './api.js';
 import { Chat } from './chat.js';
 import { el, poll, relativeTime, replace } from './dom.js';
 import { Orb, type OrbState } from './orb.js';
-import {
-  onSettingsSaved,
-  renderConnections,
-  renderMemory,
-  rerender,
-  renderNotes,
-  renderSettings,
-  renderTimers,
-  renderTools,
-} from './panels.js';
+import { renderConnections } from './panels/connections.js';
+import { rerender } from './panels/common.js';
+import { renderMemory } from './panels/memory.js';
+import { renderNotes } from './panels/notes.js';
+import { onSettingsSaved, renderSettings } from './panels/settings.js';
+import { renderTimers } from './panels/timers.js';
+import { renderTools } from './panels/tools.js';
 import { listen, type Topic } from './events.js';
 import { chime, ensureNotifications, notify } from './sound.js';
 import { Talk, type TalkState } from './talk.js';

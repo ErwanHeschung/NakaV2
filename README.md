@@ -131,7 +131,7 @@ Measured on an RTX 5070 Ti with Gemma 4 12B and Kokoro, from the end of speech t
   <img src="eval/charts/e2e-latency-light.png" alt="Time to first sound. With Kokoro: 216 ms of speech recognition, 192 ms to the first sentence and 66 ms of synthesis, 474 ms in total against a 1300 ms budget. Chatterbox, the engine it replaced, needed 1662 ms." width="720">
 </picture>
 
-About 0.5 seconds on the server, and 0.5 to 0.8 seconds heard from the tray app. Full benchmarks are in [eval/RESULTS.md](eval/RESULTS.md).
+About 0.5 seconds on the server, and 0.5 to 0.8 seconds heard from the tray app. Over a real conversation, where the prompt carries her memory and every tool, the median time to first sound is about 0.7 seconds and the slow turns stay under 0.9 seconds (`eval/pipeline_bench.py`). Full benchmarks are in [eval/RESULTS.md](eval/RESULTS.md).
 
 ## Building from source
 

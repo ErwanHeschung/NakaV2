@@ -415,6 +415,12 @@ FIELDS: list[Field] = [
           "the web or PowerShell on, 16384 leaves room to read a few pages. "
           "More costs VRAM.", applies="models",
           minimum=2048, maximum=32768, step=1024),
+    Field("settings.llm.swa_full", "Faster follow-up replies", "bool",
+          "Language model",
+          "Keeps the whole conversation in the model's cache, so a reply "
+          "starts about 170ms sooner in median and 190ms sooner at the slow "
+          "end. Costs about 2 GB more graphics memory while the model is "
+          "loaded.", applies="models"),
     Field("settings.llm.url", "Server", "text", "Language model",
           "Where llama.cpp is listening."),
     Field("settings.llm.temperature", "Temperature", "float", "Language model",

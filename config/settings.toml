@@ -96,6 +96,12 @@ model_file = "gemma-4-12b-it-qat-q4_0.gguf"
 # Tokens of context. Persona, facts, summary, the recent turns and every tool
 # schema all have to fit, so this is not free to shrink.
 ctx_size = 8192
+# Keep Gemma's sliding-window attention cache at full size, so each turn
+# reuses almost the whole prompt from the last one instead of recomputing
+# about 500 tokens. Measured: first sound 860 -> 691ms in median, 1068 ->
+# 877ms at p90, for about 2.1 GB more VRAM while the model is loaded
+# (eval/pipeline_bench.py). Takes effect the next time the model starts.
+swa_full = true
 temperature = 0.0
 max_tokens = 256
 # The same cap while web or PowerShell is on. A tool call's arguments count

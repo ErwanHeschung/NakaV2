@@ -390,6 +390,24 @@ async def run(messages: list[dict],
         yield sentence
 
 
+async def prefill() -> None:
+    """Have llama-server compute the prompt's fixed part before it is needed.
+
+    A freshly started llama-server has an empty cache, so the first turn
+    after a reload paid for the whole prefix: persona, facts and about 3,000
+    tokens of tool declarations, roughly a second. Asked for one token now,
+    while the speech models are still loading, it has that prefix cached
+    when the first real request arrives, which then only computes its own
+    end. Built exactly as a turn's prompt is, so the tokens match.
+    """
+    from .memory import memory
+
+    messages = _with_powers(memory.messages("."))
+    tools = (_offered(Turn(messages))
+             if settings.CLIENT.get("use_tools", True) else [])
+    await llm.prefill(messages, tools)
+
+
 def _offered(turn: Turn) -> list[dict]:
     return [t.schema() for t in available() if t.power not in turn.withhold]
 
