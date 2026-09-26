@@ -27,6 +27,7 @@ list once said.
 | pystray | 0.19.5 | GNU Lesser General Public License v3 (LGPLv3) |
 | pythonnet | 3.1.0 | MIT |
 | pywebview | 6.2.1 | BSD License |
+| resvg_py | 0.5.0 | see the package |
 | six | 1.17.0 | MIT License |
 | sounddevice | 0.5.6 | MIT |
 | tomlkit | 0.15.1 | MIT License |
@@ -77,11 +78,15 @@ list once said.
 | huggingface_hub | 1.32.0 | Apache Software License |
 | idna | 3.20 | BSD-3-Clause |
 | isodate | 0.7.2 | BSD License |
+| jaraco.classes | 3.4.0 | MIT License |
+| jaraco_context | 6.1.2 | MIT |
+| jaraco_functools | 4.6.0 | MIT |
 | jinja2 | 3.1.6 | BSD License |
 | joblib | 1.6.0 | BSD-3-Clause |
 | jsonschema | 4.26.0 | MIT |
 | jsonschema_specifications | 2025.9.1 | MIT |
 | justext | 3.0.2 | BSD License |
+| keyring | 25.7.0 | MIT |
 | kokoro | 0.9.4 | Apache Software License |
 | language_tags | 1.3.1 | MIT |
 | loguru | 0.7.3 | MIT License |
@@ -91,6 +96,7 @@ list once said.
 | markupsafe | 3.0.3 | BSD-3-Clause |
 | mdurl | 0.1.2 | MIT License |
 | misaki | 0.9.4 | Apache Software License |
+| more_itertools | 11.1.0 | MIT |
 | mpmath | 1.3.0 | BSD License |
 | murmurhash | 1.0.15 | MIT License |
 | networkx | 3.6.1 | BSD-3-Clause |
@@ -109,6 +115,7 @@ list once said.
 | python_dateutil | 2.9.0.post0 | BSD License, Apache Software License |
 | python_multipart | 0.0.32 | Apache-2.0 |
 | pytz | 2026.3.post1 | MIT License |
+| pywin32_ctypes | 0.2.3 | BSD-3-Clause |
 | pyyaml | 6.0.3 | MIT License |
 | rdflib | 7.6.0 | BSD License |
 | referencing | 0.37.0 | MIT |
@@ -163,6 +170,7 @@ list once said.
 | uv | Apache-2.0 or MIT | https://github.com/astral-sh/uv |
 | CPython, as uv installs it | PSF-2.0 | https://www.python.org/ |
 | Lucide icons (vendored into the panel) | ISC | https://lucide.dev/ |
+| Simple Icons brand logos (vendored into the panel; the logos are their owners' trademarks) | CC0-1.0 | https://simpleicons.org/ |
 | Microsoft Edge WebView2 runtime | Microsoft terms | https://developer.microsoft.com/microsoft-edge/webview2/ |
 | Inno Setup (builds the installer; not shipped) | Inno Setup Licence | https://jrsoftware.org/ |
 

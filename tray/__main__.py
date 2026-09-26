@@ -228,6 +228,13 @@ def main() -> None:
                                         f"({event.get('index')}/{event.get('total')})")
                             else:
                                 repaint("ready")
+                        elif event.get("topic") == "timers" and event.get("rang"):
+                            # The panel chimes too, but only if its window
+                            # is open; this reaches the person either way.
+                            if event.get("kind") == "reminder":
+                                icon.notify(event["rang"], "Reminder")
+                            else:
+                                icon.notify(f"{event['rang']} is up.", "Timer")
                         elif event.get("topic") == "client" and event.get("show"):
                             show()
                         elif event.get("topic") == "client" and event.get("interrupt"):

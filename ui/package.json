@@ -5,14 +5,14 @@
   "type": "module",
   "description": "Control panel for Naka: settings, memory, notes and timers.",
   "scripts": {
-    "build": "npm run clean && node scripts/vendor-lucide.mjs && tsc",
+    "build": "npm run clean && node scripts/vendor-lucide.mjs && node scripts/vendor-brands.mjs && tsc",
     "watch": "tsc --watch",
     "lint": "oxlint --type-aware",
     "lint:fix": "oxlint --type-aware --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "check": "tsc --noEmit && oxlint --type-aware && prettier --check .",
-    "vendor": "node scripts/vendor-lucide.mjs",
+    "vendor": "node scripts/vendor-lucide.mjs && node scripts/vendor-brands.mjs",
     "clean": "node -e \"require('fs').rmSync('public/js',{recursive:true,force:true})\""
   },
   "devDependencies": {
@@ -20,6 +20,7 @@
     "oxlint": "1.83.0",
     "oxlint-tsgolint": "7.0.2002",
     "prettier": "3.9.8",
+    "simple-icons": "^16.32.0",
     "typescript": "7.0.2"
   }
 }

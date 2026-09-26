@@ -20,9 +20,9 @@ import tomlkit
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from . import autostart, events, paths, settings
+from . import autostart, connections, events, paths, settings
 from .memory import memory
-from .tools import builtin
+from .tools import builtin, reminders
 from .tools.builtin import validate_fact
 from .tools.registry import FACTS
 
@@ -264,6 +264,45 @@ async def timer_cancel(label: str):
     return {"timers": builtin.live_timers(), "now": time.time()}
 
 
+# --------------------------------------------------------------- reminders
+
+
+class ReminderIn(BaseModel):
+    text: str
+    at: str = ""
+    day: str = ""
+    in_minutes: int | None = None
+
+
+def _reminders_view() -> dict:
+    return {"reminders": [reminders.view(r) for r in reminders.pending()],
+            "now": time.time()}
+
+
+@router.get("/reminders")
+async def reminders_list():
+    return _reminders_view()
+
+
+@router.post("/reminders")
+async def reminder_create(body: ReminderIn):
+    try:
+        reminders.add(body.text, reminders.due_at(body.day, body.at,
+                                                  body.in_minutes))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    events.publish("timers")
+    return _reminders_view()
+
+
+@router.delete("/reminders/{ident}")
+async def reminder_cancel(ident: str):
+    if reminders.drop(ident) is None:
+        raise HTTPException(status_code=404, detail=f"no reminder {ident!r}")
+    events.publish("timers")
+    return _reminders_view()
+
+
 # ---------------------------------------------------------------- settings
 
 
@@ -415,7 +454,21 @@ FIELDS: list[Field] = [
           minimum=0, maximum=365),
 ]
 
-BY_KEY = {f.key: f for f in FIELDS}
+def _connection_fields() -> list[Field]:
+    """Each connection's switch and settings. Accepted by PATCH /settings but
+    kept out of the Settings drawer: they are shown on their own cards."""
+    out = []
+    for c in connections.ALL.values():
+        out.append(Field(f"settings.connections.{c.name}.enabled", c.label,
+                         "bool", "Connections"))
+        for s in c.settings:
+            out.append(Field(f"settings.connections.{c.name}.{s.key}",
+                             s.label, s.kind, "Connections", s.help,
+                             options=list(s.options)))
+    return out
+
+
+BY_KEY = {f.key: f for f in FIELDS + _connection_fields()}
 
 _FILES = {"settings": settings.SETTINGS_FILE, "voice": settings.VOICE_FILE}
 
@@ -557,6 +610,8 @@ async def settings_write(body: SettingsIn):
     # shows up once it is rebuilt.
     memory.reload()
     events.publish("settings")
+    if any(k.startswith("settings.connections.") for k in body.changes):
+        events.publish("connections")
 
     return {
         "saved": sorted(body.changes),

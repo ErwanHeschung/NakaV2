@@ -7,6 +7,8 @@
  * the server is the source of truth and this file has to follow it.
  */
 
+import type { Via } from './events.js';
+
 export interface OpsStatus {
   models_loaded: boolean;
   llm_up: boolean | null;
@@ -27,7 +29,7 @@ export interface ConversationTurn {
   at: string;
   user: string;
   naka: string;
-  via: 'voice' | 'text';
+  via: Via;
   /** Names of the tools that ran, in order. */
   tools: string[];
   /** Cut off by the talk key or a stop, as far as it had got. */
@@ -59,7 +61,7 @@ export interface ToolInfo {
   label: string;
   summary: string;
   /** The switch in Settings › Powers this tool also needs, if any. */
-  power: 'web' | 'shell' | null;
+  power: 'web' | 'shell' | `conn.${string}` | null;
   /** Offered to her right now: allowlisted and, if it has one, power on. */
   enabled: boolean;
   confirms: 'always' | 'changes' | 'never';
@@ -73,6 +75,64 @@ export interface ToolsState {
   max_steps: number;
   timeout_s: number;
   awaiting_confirmation: { name: string; arguments: Record<string, unknown> } | null;
+  connections: Record<string, { label: string; on: boolean; ready: boolean }>;
+}
+
+export interface Reminder {
+  id: string;
+  text: string;
+  due: number;
+  /** Said the way she would say it: "tomorrow at 09:00". */
+  when: string;
+}
+
+export interface RemindersState {
+  reminders: Reminder[];
+  now: number;
+}
+
+export interface ConnectionField {
+  key: string;
+  label: string;
+  kind: 'text' | 'int' | 'bool' | 'choice';
+  help: string;
+  options: string[];
+  value: string | number | boolean | null;
+}
+
+export interface ConnectionSecret {
+  key: string;
+  label: string;
+  help: string;
+  /** Typed by the person. A sign-in's token is not, and shows as connected. */
+  typed: boolean;
+  set: boolean;
+}
+
+export interface ConnectionInfo {
+  name: string;
+  label: string;
+  icon: string;
+  blurb: string;
+  on: boolean;
+  configured: boolean;
+  ready: boolean;
+  signs_in: boolean;
+  guide: { text: string; url: string }[];
+  fields: ConnectionField[];
+  secrets: ConnectionSecret[];
+  status: { ok: boolean | null; text: string; at: number };
+  /** Telegram only. */
+  owner?: number;
+  bot?: string;
+  candidates?: { chat_id: number; name: string; username: string; at: number }[];
+  /** Weather only. */
+  place?: string;
+}
+
+export interface ConnectionsState {
+  connections: ConnectionInfo[];
+  redirect_uri: string;
 }
 
 export interface NoteInfo {
@@ -310,6 +370,55 @@ export class NakaApi {
   cancelTimer(label: string): Promise<TimersState> {
     return this.request(`/timers/${encodeURIComponent(label)}`, {
       method: 'DELETE',
+    });
+  }
+
+  reminders(): Promise<RemindersState> {
+    return this.request('/reminders');
+  }
+
+  addReminder(text: string, day: string, at: string): Promise<RemindersState> {
+    return this.request('/reminders', {
+      method: 'POST',
+      body: JSON.stringify({ text, day, at }),
+    });
+  }
+
+  cancelReminder(id: string): Promise<RemindersState> {
+    return this.request(`/reminders/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    });
+  }
+
+  connections(): Promise<ConnectionsState> {
+    return this.request('/connections');
+  }
+
+  /** Goes to Windows Credential Manager; never read back. */
+  saveSecret(name: string, key: string, value: string): Promise<ConnectionInfo> {
+    return this.request(`/connections/${name}/secrets/${key}`, {
+      method: 'PUT',
+      body: JSON.stringify({ value }),
+    });
+  }
+
+  testConnection(name: string): Promise<ConnectionInfo> {
+    return this.request(`/connections/${name}/test`, { method: 'POST' });
+  }
+
+  /** For a sign-in, the server opens the browser and returns the URL too. */
+  connect(name: string): Promise<ConnectionInfo & { url: string | null }> {
+    return this.request(`/connections/${name}/connect`, { method: 'POST' });
+  }
+
+  disconnect(name: string): Promise<ConnectionInfo> {
+    return this.request(`/connections/${name}/disconnect`, { method: 'POST' });
+  }
+
+  pairTelegram(chatId: number): Promise<ConnectionInfo> {
+    return this.request('/connections/telegram/pair', {
+      method: 'POST',
+      body: JSON.stringify({ chat_id: chatId }),
     });
   }
 

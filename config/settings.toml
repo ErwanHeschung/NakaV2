@@ -47,6 +47,42 @@ workspace = "~/Documents/Naka Workspace"
 # started are killed.
 command_timeout = 20
 
+[connections]
+# Services outside this PC that she can reach, each off until switched on in
+# the panel under Connections. Nothing here goes out over the network while
+# its switch is off. Tokens and client secrets are not kept in this file:
+# they live in Windows Credential Manager, under "Naka".
+
+[connections.telegram]
+enabled = false
+# The one chat allowed to talk to her, set by pairing in the panel. Messages
+# from any other chat are dropped unread.
+chat_id = 0
+# What to send there once paired.
+forward_reminders = true
+forward_timers = true
+
+[connections.calendar]
+enabled = false
+# The OAuth client from your own Google Cloud project (Desktop app). The
+# client secret goes to Credential Manager.
+client_id = ""
+
+[connections.weather]
+enabled = false
+# Geocoded once by Open-Meteo when saved from the panel.
+city = ""
+latitude = 0.0
+longitude = 0.0
+place = ""
+timezone = ""
+
+[connections.spotify]
+enabled = false
+# The client id of your own app on the Spotify developer dashboard. PKCE, so
+# there is no client secret.
+client_id = ""
+
 [server]
 host = "127.0.0.1"
 port = 8000

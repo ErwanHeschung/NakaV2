@@ -13,6 +13,7 @@ import { el, poll, relativeTime, replace } from './dom.js';
 import { Orb, type OrbState } from './orb.js';
 import {
   onSettingsSaved,
+  renderConnections,
   renderMemory,
   rerender,
   renderNotes,
@@ -162,13 +163,14 @@ if (embedded) {
 const banner = el('div', { class: 'ring' });
 root.append(banner);
 
-function ring(label: string): void {
+function ring(label: string, kind?: 'reminder'): void {
+  const line = kind === 'reminder' ? `Reminder: ${label}` : `${label} is up.`;
   void chime();
-  notify('Timer', `${label} is up.`);
+  notify(kind === 'reminder' ? 'Reminder' : 'Timer', line);
   replace(
     banner,
-    icon('bell'),
-    el('span', {}, `${label} is up.`),
+    icon(kind === 'reminder' ? 'bell-ring' : 'bell'),
+    el('span', {}, line),
     el('button', {
       class: 'icon-btn',
       title: 'Dismiss',
@@ -204,7 +206,7 @@ listen({
   onEvent: (event) => {
     // A timer coming due is the one event that carries something to do
     // besides re-reading; everything else is just "this changed".
-    if (event.rang !== undefined) ring(event.rang);
+    if (event.rang !== undefined) ring(event.rang, event.kind);
     if (openSection?.topic === event.topic) refreshOpenSection();
     chat.onEvent(event);
     if (event.topic === 'notes' || event.topic === 'timers') void refreshCounts();
@@ -318,6 +320,13 @@ const SECTIONS: Section[] = [
     title: 'Timers',
     topic: 'timers',
     render: renderTimers,
+  },
+  {
+    id: 'connections',
+    icon: 'plug',
+    title: 'Connections',
+    topic: 'connections',
+    render: renderConnections,
   },
   // Listens to settings: the allowlist is fixed at startup, but the powers
   // that gate web and PowerShell are switched from here and from Settings.

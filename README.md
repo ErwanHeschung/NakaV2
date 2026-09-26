@@ -31,7 +31,8 @@ She is also meant to be someone rather than something: a persona you can edit, a
 - **Fast replies.** She starts speaking as soon as the first sentence is ready, typically 0.5 to 0.8 seconds after you stop talking.
 - **A voice of her own.** Kokoro speech with a tunable effects chain (pitch, formants, chorus, compression) that gives her a consistent, slightly synthetic character.
 - **Memory.** She keeps a short list of facts about you and a rolling summary of the conversation. You can read and edit both in the panel.
-- **Tools.** Timers that ring, notes in a plain folder on your disk, the clock, GPU status.
+- **Tools.** Timers that ring, reminders for a time of day that survive a restart, notes in a plain folder on your disk, the clock, GPU status.
+- **Optional connections.** Telegram, Google Calendar, the weather and Spotify, each off until you switch it on and set it up with your own account.
 - **Optional web access.** Search the web and read pages when she needs something recent. Off until you turn it on.
 - **Optional PowerShell.** She can look around your PC and act on it. Anything that changes something waits for you to say yes out loud.
 - **Plays well with games.** The models leave the GPU after a minute of silence and come back when you press the talk key.
@@ -67,7 +68,8 @@ Download the latest installer from the [GitHub Releases page](https://github.com
 **The panel.** Choose *Open Naka* in the tray menu. From there you can:
 
 - read and edit what she remembers about you,
-- browse and edit your notes and timers,
+- browse and edit your notes, timers and reminders,
+- connect Telegram, Google Calendar, the weather and Spotify,
 - see which tools she has, and switch web and PowerShell on or off,
 - change her name, voice, model and push to talk key in Settings.
 
@@ -82,11 +84,23 @@ Download the latest installer from the [GitHub Releases page](https://github.com
 
 Every tool call, whether it ran, was refused or was declined, is written to an audit log.
 
+**Connections.** Open *Connections* in the panel. Each card has a switch, the few fields it needs, a *Save and check* button and a short setup guide with links.
+
+| Connection | What she can do | What you need |
+|:-|:-|:-|
+| Telegram | Answer your messages from your phone, send you reminders, timers and notes | A bot of your own from [@BotFather](https://t.me/BotFather). Send it /start, then confirm your chat in the panel. |
+| Google Calendar | Read your day, add events, move or delete them | Your own Google Cloud project with the Calendar API and a Desktop OAuth client. Publish the consent screen so Google does not sign you out every 7 days. |
+| Weather | Current conditions, today, tomorrow and the week | Nothing but a town name. Data from [Open-Meteo](https://open-meteo.com). |
+| Spotify | Play a song, album, playlist or artist by name, pause, resume, skip, queue, say what is playing | Spotify Premium and your own app on the [developer dashboard](https://developer.spotify.com/dashboard). |
+
+Only your own Telegram chat is answered; messages from anyone else are dropped unread. A message from Telegram is treated like a web page: anything that changes something asks first, a yes typed there cannot approve a question asked at the PC, and PowerShell is never offered to it. Moving or deleting a calendar event always asks first. Tokens and client secrets go to Windows Credential Manager, never into `settings.toml`.
+
 ## Privacy
 
 - **The models never leave your PC.** Speech recognition (Whisper), the language model (llama.cpp) and speech synthesis (Kokoro) all run locally.
 - **Nothing goes out by default.** The only network traffic is setup downloading its files. At runtime the models are opened in offline mode.
 - **The web is opt in.** With web access on, her searches and the pages she reads go out. Your voice and your conversation do not.
+- **Connections are opt in, one by one.** Nothing is sent to Telegram, Google, Open-Meteo or Spotify while its switch is off. With Telegram on, the messages you exchange with her there pass through Telegram.
 - **Your data is plain files** in `%LOCALAPPDATA%\Naka`: settings, facts, logs. Notes go to `Documents\Naka Notes`. Uninstalling asks before it removes the data folder, and never touches your notes.
 
 ## Make her yours

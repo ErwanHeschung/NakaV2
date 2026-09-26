@@ -18,8 +18,14 @@
 
 import { api, type ConversationTurn } from './api.js';
 import { el, replace } from './dom.js';
-import type { ServerEvent } from './events.js';
+import type { ServerEvent, Via } from './events.js';
 import { icon, type IconName } from './ui.js';
+
+const VIA_ICON: Record<Via, IconName> = {
+  voice: 'mic',
+  text: 'keyboard',
+  telegram: 'message-circle',
+};
 
 const PAGE = 20;
 
@@ -71,13 +77,9 @@ class TurnView {
     );
   }
 
-  heard(text: string, via: 'voice' | 'text', at?: string): void {
+  heard(text: string, via: Via, at?: string): void {
     replace(this.you, text || '…');
-    replace(
-      this.youMeta,
-      icon(via === 'text' ? 'keyboard' : 'mic', 'xs'),
-      el('span', {}, stamp(at)),
-    );
+    replace(this.youMeta, icon(VIA_ICON[via], 'xs'), el('span', {}, stamp(at)));
   }
 
   /** Waiting on her first sentence. */

@@ -14,10 +14,12 @@ from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import (agent, conversation, events, llm, logprune, logsetup, models, ops,
-               panel, paths, settings, stt, tts, turnlog)
+from . import (agent, connections, conversation, events, llm, logprune,
+               logsetup, models, ops, panel, paths, settings, stt, tts,
+               turnlog)
+from .connections import routes as connection_routes
 from .memory import memory
-from .tools import builtin
+from .tools import builtin, reminders
 from .tools.registry import AGENT, listed
 
 def turn_note(woke: float) -> str:
@@ -64,11 +66,23 @@ logsetup.configure()
 log = logging.getLogger("naka")
 
 
+TELEGRAM_NOTE = (
+    " This message was typed on the user's phone and sent through Telegram, "
+    "and your reply goes back there as text: they are away from the PC and "
+    "will not hear you. Keep it short."
+)
+
+
+def _forward(text: str, kind: str) -> None:
+    """Send a ring to Telegram as well, off the loop. Quiet if not connected."""
+    spawn(asyncio.to_thread(connections.telegram().notify, text, kind))
+
+
 async def timer_watcher():
-    """Ring timers as they come due.
+    """Ring timers and reminders as they come due.
 
     Half a second is the resolution: finer buys nothing a person can perceive
-    in a kitchen timer, and the loop is otherwise free. Timers are taken, not
+    in a kitchen timer, and the loop is otherwise free. Both are taken, not
     read, so a slow fan-out cannot ring the same one twice.
     """
     while True:
@@ -77,6 +91,15 @@ async def timer_watcher():
             for timer in builtin.take_due_timers():
                 log.info("timer %r came due", timer["label"])
                 events.publish("timers", rang=timer["label"], at=time.time())
+                _forward(f"Timer: {timer['label']} is up.", "timers")
+            for reminder in reminders.take_due():
+                log.info("reminder %r came due", reminder["text"])
+                late = (" (late: Naka was not running when it was due, at "
+                        f"{datetime.fromtimestamp(reminder['due']):%H:%M})"
+                        if reminder.get("late") else "")
+                events.publish("timers", rang=reminder["text"] + late,
+                               kind="reminder", at=time.time())
+                _forward(f"Reminder: {reminder['text']}{late}", "reminders")
         except asyncio.CancelledError:
             raise
         except Exception:
@@ -97,12 +120,15 @@ async def lifespan(app: FastAPI):
     watcher = asyncio.create_task(ops.idle_watcher())
     pruning = asyncio.create_task(logprune.pruner())
     ringing = asyncio.create_task(timer_watcher())
+    connections.telegram().on_message = telegram_turn
+    polling = asyncio.create_task(connections.telegram().run())
     log.info("ready on %s:%s", settings.SERVER["host"], settings.SERVER["port"])
     yield
     speech.cancel()
     watcher.cancel()
     pruning.cancel()
     ringing.cancel()
+    polling.cancel()
     await llm.aclose()
     await ops.shutdown()
     models.unload()
@@ -154,14 +180,16 @@ class TextIn(BaseModel):
     agentic: bool = AGENT["default_agentic"]
 
 
-def reply_stream(user_text: str, agentic: bool, messages=None, actions=None):
+def reply_stream(user_text: str, agentic: bool, messages=None, actions=None,
+                 *, tainted: bool = False,
+                 withhold: frozenset[str] = frozenset(), origin: str = "pc"):
     """Choose between plain streaming and the agentic loop.
 
     A confirmation left pending by a previous turn takes priority: this
     utterance is the user's answer to it, not a new request.
     """
     async def generate():
-        if agent.pending is not None:
+        if agent.answers_pending(origin):
             async for sentence in agent.resolve_pending(user_text, actions):
                 yield sentence
             return
@@ -170,7 +198,10 @@ def reply_stream(user_text: str, agentic: bool, messages=None, actions=None):
         if messages is None:
             messages = memory.messages(user_text)
         if agentic:
-            async for sentence in agent.run(messages, actions):
+            async for sentence in agent.run(messages, actions,
+                                            tainted=tainted,
+                                            withhold=withhold,
+                                            origin=origin):
                 yield sentence
         else:
             async for sentence in llm.stream_sentences(messages):
@@ -180,6 +211,7 @@ def reply_stream(user_text: str, agentic: bool, messages=None, actions=None):
 
 
 app.include_router(panel.router)
+app.include_router(connection_routes.router)
 
 
 @app.get("/events")
@@ -260,6 +292,34 @@ async def chat_endpoint(body: TextIn):
                             tools=actions)
 
     return StreamingResponse(generate(), media_type="application/x-ndjson")
+
+
+async def telegram_turn(text: str) -> str:
+    """A message from the paired Telegram chat, answered as a text turn.
+
+    Tainted from the start, like a turn that has read a web page: it was
+    typed on a phone, not said at the PC, so anything that changes something
+    asks first, and PowerShell is not offered at all. A confirmation it asks
+    for is answered by the next message, from wherever it comes.
+    """
+    turn_id = conversation.next_id()
+    conversation.heard(turn_id, text, "telegram")
+    async with ops.Busy():
+        woke = await ops.ensure_loaded()
+    messages = memory.messages(text, turn_note(woke) + TELEGRAM_NOTE)
+    spoken: list[str] = []
+    actions: list[dict] = []
+    async with ops.Busy():
+        async for sentence in reply_stream(
+                text, settings.CLIENT["use_tools"], messages, actions,
+                tainted=True, withhold=frozenset({"shell"}),
+                origin="telegram"):
+            spoken.append(sentence)
+            conversation.said(turn_id, sentence)
+    reply = " ".join(spoken)
+    await remember(text, reply, actions)
+    conversation.record(turn_id, text, reply, via="telegram", tools=actions)
+    return reply
 
 
 def interrupted(turn_id: int, user_text: str, spoken: list[str],
@@ -372,6 +432,9 @@ async def tools_state():
             for t in listed()
         ],
         "powers": {p: bool(settings.POWERS.get(p)) for p in agent.POWERS},
+        "connections": {name: {"label": c.label, "on": c.on(),
+                               "ready": c.ready()}
+                        for name, c in connections.ALL.items()},
         "max_steps": agent.limits()[0],
         "timeout_s": agent.limits()[1],
         "awaiting_confirmation": agent.pending_view(),

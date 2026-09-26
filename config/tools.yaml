@@ -125,3 +125,75 @@ tools:
   find_files:
     enabled: true
     destructive: false
+
+  # --- reminders: local, no account ---------------------------------------
+
+  set_reminder:
+    enabled: true
+    destructive: false
+
+  list_reminders:
+    enabled: true
+    destructive: false
+
+  cancel_reminder:
+    enabled: true
+    # Like a timer: what it was for is lost, and nothing brings it back.
+    destructive: true
+
+  # --- connections: offered only while switched on and set up in the -----
+  # --- panel under Connections --------------------------------------------
+
+  send_telegram:
+    enabled: true
+    # Only ever to the paired chat, which is the person's own.
+    destructive: false
+
+  calendar_events:
+    enabled: true
+    destructive: false
+
+  calendar_create:
+    enabled: true
+    # Asks only when the turn has been steered from outside; see the tool.
+    destructive: false
+
+  calendar_move:
+    enabled: true
+    destructive: true
+
+  calendar_delete:
+    enabled: true
+    destructive: true
+
+  weather_now:
+    enabled: true
+    destructive: false
+
+  weather_forecast:
+    enabled: true
+    destructive: false
+
+  spotify_play:
+    enabled: true
+    destructive: false
+
+  spotify_pause:
+    enabled: true
+    destructive: false
+
+  spotify_resume:
+    enabled: true
+    destructive: false
+
+  spotify_next:
+    enabled: true
+    destructive: false
+
+  spotify_now_playing:
+    enabled: true
+    destructive: false
+
+  spotify_queue:
+    enabled: true
+    destructive: false

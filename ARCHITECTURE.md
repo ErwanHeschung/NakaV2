@@ -54,6 +54,18 @@ A single `asyncio.Lock` serialises GPU work in the server. One inference at a ti
 - `server/tools/web.py`: `web_search` (DuckDuckGo with Bing behind it, or Brave with an API key) and `fetch_page` (httpx plus trafilatura for the main text). Any address resolving to loopback, private, link local or reserved ranges is refused, and checked again at every redirect. Results are wrapped as untrusted content.
 - `server/tools/shell.py`: `run_command` runs PowerShell as the user. Whether it asks first is decided per command by PowerShell's own parser: read only means every command anywhere in the input is on an allowlist of commands that only look, with no redirection, method call, assignment or call operator. Anything else, and anything that fails to parse, needs a yes. Once web content has entered a turn, every command in that turn needs one. Each command runs in its own job object with a memory cap and a timeout.
 
+**Connections.** `server/connections/` has one module per outside service (Telegram, Google Calendar, Open-Meteo weather, Spotify) on a small base class: its settings in `settings.toml` under `[connections.<name>]`, its secrets in Windows Credential Manager through `keyring` (`secrets.py`), a test, and the tools it lends her. Those tools carry `power="conn.<name>"`, so the registry offers them only while the connection is switched on and set up. All outbound traffic goes through `net.request`, which refuses while the switch is off. Google and Spotify sign in with OAuth and PKCE, redirected back to the server itself on `127.0.0.1` (`oauth.py`, `/connections/callback`).
+
+| Guardrail | Where |
+|:-|:-|
+| Only the paired Telegram chat is answered; groups and other chats are dropped and audited | `telegram.Telegram.handle` |
+| Pairing needs /start in Telegram and a click in the panel | `telegram.Telegram.pair` |
+| A Telegram turn starts tainted and is never offered PowerShell | `main.telegram_turn`, `agent.Turn.withhold` |
+| A yes from Telegram only answers what Telegram asked | `agent.answers_pending` |
+| Moving and deleting events always ask; adding one asks once the turn is tainted, and reading the calendar taints it | `tools.yaml`, `calendar.py` |
+
+**Reminders.** `server/tools/reminders.py` keeps reminders for a time of day in `reminders.json` in the data folder. The same watcher that rings timers rings them, in the panel and as a tray notification, and forwards both to Telegram when it is connected. One that came due while Naka was not running rings when it starts, marked late.
+
 While a chain runs, results older than two steps are shortened so they do not push the persona out of the context window.
 
 ## Memory
@@ -100,7 +112,8 @@ Config files are seeded from the shipped defaults once and never overwritten. Se
 
 ```
 server/        FastAPI app: STT, LLM client, agent, tools, memory, voice, panel API
-  tools/       registry and allowlist, builtin tools, web, PowerShell
+  tools/       registry and allowlist, builtin tools, reminders, web, PowerShell
+  connections/ Telegram, Google Calendar, weather, Spotify: opt in, one module each
 tray/          Naka.exe: tray icon, push to talk, panel window, server supervisor
 client/        audio helpers shared with the tray, and a terminal push to talk client
 setup/         first run wizard and its steps

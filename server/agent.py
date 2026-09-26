@@ -31,8 +31,9 @@ import httpx
 
 from . import llm, settings
 from .memory import _clip
-from .tools import builtin, files, shell, web  # noqa: F401  registers them
-from .tools.registry import AGENT, call, get, schemas
+from . import connections  # noqa: F401  registers their tools
+from .tools import builtin, files, reminders, shell, web  # noqa: F401
+from .tools.registry import AGENT, available, call, get
 
 log = logging.getLogger("naka.agent")
 
@@ -124,8 +125,23 @@ def _paths() -> dict:
             "workspace": shell.workspace()}
 
 
+# Said once, plainly, so the model answers instead of retrying the call
+# until the step ceiling.
+WITHHELD = ("Error: that tool is not available for this message: commands "
+            "on the PC cannot be run from Telegram. Do not try again. Tell "
+            "the user in one sentence to ask at the PC.")
+
 REPEATED = ("You already made exactly this call in this request, and its "
             "result is above. Use that result, or do something different.")
+
+REPEAT_LIMIT = 2
+ANSWER_NOW = ("You have no more tools for this request. Answer the user now, "
+              "in a sentence or two, from what you already have. If you could "
+              "not do what they asked, say so plainly. Do not write a tool "
+              "call.")
+# What a tool call looks like when the model writes one as text instead of
+# making it. Never to be spoken.
+RAW_CALL = re.compile(r"<\|?tool_call|<tool_call>|\bcall:[a-z_]+\{")
 
 # Past this many searches in one request, the model is told to answer with
 # what it has. Not a hard stop: the step ceiling is that.
@@ -187,14 +203,23 @@ class Turn:
     working: list[dict]
     started: float = field(default_factory=time.perf_counter)
     step: int = 0
-    # Whether untrusted web content has entered this turn.
+    # Whether untrusted content has entered this turn: a web page, a
+    # calendar invitation, or the request itself when it came by Telegram.
     tainted: bool = False
+    # Powers whose tools this turn does not get, whatever the switches say.
+    # A turn from Telegram never gets PowerShell.
+    withhold: frozenset[str] = frozenset()
+    # Where the request came from: "pc" (voice or the panel) or "telegram".
+    origin: str = "pc"
     # Whether the model has already been told it promised without acting.
     nudged: bool = False
     # Every call made this turn, by name and arguments, so an exact repeat
     # can be answered from the first without running it again.
     done: set[str] = field(default_factory=set)
     searches: int = 0
+    # Exact repeats refused so far. Past REPEAT_LIMIT the model is offered no
+    # tools at all, so the only thing left for it to do is answer.
+    repeats: int = 0
     announced: set[str] = field(default_factory=set)
     # The step each tool message belongs to, by its index in `working`, so
     # old results can be shortened once the loop has moved past them.
@@ -209,6 +234,18 @@ pending: dict | None = None
 def is_affirmative(text: str) -> bool:
     cleaned = text.strip().lower().rstrip(".!")
     return cleaned in AFFIRMATIVE or cleaned.startswith(("yes", "yeah", "oui"))
+
+
+def answers_pending(origin: str) -> bool:
+    """Whether a message from here is the answer to the waiting question.
+
+    Someone at the PC can answer anything. A Telegram message only answers
+    what Telegram asked: a yes typed on a phone must not approve a command
+    that was put to the person sitting at the machine.
+    """
+    if pending is None:
+        return False
+    return origin == "pc" or pending.get("origin") == origin
 
 
 def pending_view() -> dict | None:
@@ -307,15 +344,25 @@ def _shorten_old_results(turn: Turn) -> None:
 
 
 async def run(messages: list[dict],
-              actions: list[dict] | None = None) -> AsyncIterator[str]:
+              actions: list[dict] | None = None, *, tainted: bool = False,
+              withhold: frozenset[str] = frozenset(),
+              origin: str = "pc") -> AsyncIterator[str]:
     """Run the loop, yielding sentences as they are ready to speak.
 
     Anything actually run is appended to `actions`, so the turn can be
-    recorded as it happened rather than as it sounded.
+    recorded as it happened rather than as it sounded. `tainted` starts the
+    turn as if untrusted content had already entered it, for requests that
+    did not come from someone at the PC.
     """
     kill_switch.reset()
-    async for sentence in _loop(Turn(_with_powers(messages)), actions):
+    turn = Turn(_with_powers(messages), tainted=tainted, withhold=withhold,
+                origin=origin)
+    async for sentence in _loop(turn, actions):
         yield sentence
+
+
+def _offered(turn: Turn) -> list[dict]:
+    return [t.schema() for t in available() if t.power not in turn.withhold]
 
 
 async def _loop(turn: Turn, actions: list[dict] | None) -> AsyncIterator[str]:
@@ -334,6 +381,9 @@ async def _loop(turn: Turn, actions: list[dict] | None) -> AsyncIterator[str]:
             return
 
         _shorten_old_results(turn)
+        cornered = turn.repeats >= REPEAT_LIMIT
+        if cornered and working[-1].get("content") != ANSWER_NOW:
+            working.append({"role": "system", "content": ANSWER_NOW})
         # Streamed, and spoken as it arrives. Content and tool_calls never
         # both start a reply, so the first delta already says which this is —
         # waiting for a complete response to find out was costing 610ms of
@@ -343,8 +393,13 @@ async def _loop(turn: Turn, actions: list[dict] | None) -> AsyncIterator[str]:
         finish = None
         try:
             async for kind, payload in llm.stream_with_tools(
-                    working, schemas(), max_tokens=_max_tokens()):
+                    working,
+                    [] if cornered else _offered(turn),
+                    max_tokens=_max_tokens()):
                 if kind == "sentence":
+                    if RAW_CALL.search(payload):
+                        log.warning("dropped a tool call written as text")
+                        continue
                     said.append(payload)
                     yield payload
                 elif kind == "tool_calls":
@@ -426,6 +481,7 @@ async def _loop(turn: Turn, actions: list[dict] | None) -> AsyncIterator[str]:
             signature = f"{name}:{json.dumps(arguments, sort_keys=True)}"
             if signature in turn.done:
                 log.info("repeated call %s refused", signature[:120])
+                turn.repeats += 1
                 turn.tool_steps[len(working)] = step
                 working.append({"role": "tool", "tool_call_id": call_id,
                                 "content": REPEATED})
@@ -433,6 +489,15 @@ async def _loop(turn: Turn, actions: list[dict] | None) -> AsyncIterator[str]:
             turn.done.add(signature)
 
             tool_obj = get(name)
+            if tool_obj is not None and tool_obj.power in turn.withhold:
+                # Not offered, but named anyway: refused like any tool that
+                # does not exist, and audited as the attempt it was.
+                from .tools.registry import audit
+                audit(name, arguments, "refused", "withheld from this turn")
+                turn.tool_steps[len(working)] = step
+                working.append({"role": "tool", "tool_call_id": call_id,
+                                "content": WITHHELD})
+                continue
             # In a worker: for a command this runs PowerShell's parser.
             if tool_obj is not None and await asyncio.to_thread(
                     tool_obj.needs_confirmation, arguments, turn.tainted):
@@ -442,7 +507,8 @@ async def _loop(turn: Turn, actions: list[dict] | None) -> AsyncIterator[str]:
                 # the resumed conversation has no call left without a result.
                 asked["tool_calls"] = asked["tool_calls"][:position + 1]
                 pending = {"name": name, "arguments": arguments,
-                           "id": call_id, "turn": turn}
+                           "id": call_id, "turn": turn,
+                           "origin": turn.origin}
                 log.info("awaiting confirmation for %s(%s)", name, arguments)
                 yield await _confirmation_question(name, arguments, working)
                 return
@@ -456,7 +522,8 @@ async def _loop(turn: Turn, actions: list[dict] | None) -> AsyncIterator[str]:
             # and blocking here stalls the audio already streaming to the
             # client.
             result = await asyncio.to_thread(call, name, arguments)
-            if (tool_obj is not None and tool_obj.power == "web"
+            if (tool_obj is not None
+                    and (tool_obj.power == "web" or tool_obj.untrusted)
                     and not result.startswith("Error")):
                 turn.tainted = True
             if name == "web_search":

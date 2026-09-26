@@ -974,6 +974,187 @@ button.item.clickable:hover {
   margin-bottom: 12px;
 }
 
+/* ----------------------------------------------------------------- dialog */
+
+button.btn.primary {
+  color: var(--ink);
+  border-color: rgba(124, 92, 255, 0.55);
+  background: rgba(124, 92, 255, 0.22);
+}
+
+button.btn.primary:hover:not(:disabled) {
+  border-color: rgba(124, 92, 255, 0.8);
+  background: rgba(124, 92, 255, 0.32);
+}
+
+button.btn.danger.solid {
+  color: #fff;
+  border-color: rgba(255, 107, 107, 0.55);
+  background: rgba(255, 107, 107, 0.22);
+}
+
+button.btn.danger.solid:hover:not(:disabled) {
+  color: #fff;
+  border-color: rgba(255, 107, 107, 0.85);
+  background: rgba(255, 107, 107, 0.34);
+}
+
+button.btn:focus-visible {
+  outline: 2px solid var(--live);
+  outline-offset: 2px;
+}
+
+dialog.ask {
+  width: min(380px, calc(100vw - 32px));
+  padding: 20px 20px 16px;
+  border: 1px solid #2b3142;
+  border-radius: var(--radius);
+  background: linear-gradient(180deg, #171b24, #12151c);
+  color: var(--ink);
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.65);
+  animation: ask-in 0.14s ease-out;
+}
+
+dialog.ask::backdrop {
+  background: rgba(4, 5, 8, 0.6);
+  backdrop-filter: blur(3px);
+}
+
+dialog.ask h2 {
+  margin: 0 0 8px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+dialog.ask p {
+  margin: 0;
+  color: var(--ink-dim);
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.ask-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+@keyframes ask-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.98);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  dialog.ask {
+    animation: none;
+  }
+}
+
+/* ------------------------------------------------------------ connections */
+
+.dot.bad {
+  background: var(--bad);
+  box-shadow: 0 0 9px rgba(255, 107, 107, 0.5);
+}
+
+.conn {
+  padding: 4px 12px 12px;
+  margin-bottom: 12px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+/* Off: the heading and the switch, and nothing to fill in yet. */
+.conn.off {
+  opacity: 0.7;
+}
+
+.conn .row.spaced:first-child {
+  margin: 10px 0 4px;
+}
+
+/* The heading follows the logo rather than starting the card, so it would
+   otherwise keep h3's top margin and sit below the logo's centre line. */
+.conn .row > h3 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 12px;
+}
+
+/* A small tile, as an app's icon sits on a phone: the logo reads as the
+   service's own, whatever colour the panel is. */
+.conn-logo {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.06);
+  flex: none;
+}
+
+.conn-logo img,
+.conn-logo .icon {
+  width: 16px;
+  height: 16px;
+  display: block;
+}
+
+.conn-logo.weather {
+  color: #f5b841;
+}
+
+.conn-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--ink-dim);
+  margin: 6px 0 10px;
+}
+
+.conn a,
+.guide a {
+  color: var(--live);
+}
+
+.guide {
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--ink-dim);
+}
+
+.guide summary {
+  cursor: pointer;
+  color: var(--ink);
+}
+
+.guide ol {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  line-height: 1.5;
+}
+
+.guide li + li {
+  margin-top: 4px;
+}
+
+.guide-link {
+  margin-left: 5px;
+  vertical-align: middle;
+}
+
+/* Day and time of a reminder, side by side. */
+.row > .control {
+  flex: 1;
+  min-width: 0;
+}
+
 /* Save stays reachable without scrolling back up a long settings form. */
 .sticky-actions {
   position: sticky;

@@ -4,7 +4,16 @@ import {
   ArrowLeft,
   AudioLines,
   Bell,
+  BellRing,
   Brain,
+  Calendar,
+  CloudSun,
+  ExternalLink,
+  KeyRound,
+  MessageCircle,
+  Music,
+  Plug,
+  Unplug,
   Check,
   Circle,
   CircleCheck,
@@ -55,7 +64,16 @@ const ICONS = {
   'arrow-left': ArrowLeft,
   'audio-lines': AudioLines,
   bell: Bell,
+  'bell-ring': BellRing,
   brain: Brain,
+  calendar: Calendar,
+  'cloud-sun': CloudSun,
+  'external-link': ExternalLink,
+  'key-round': KeyRound,
+  'message-circle': MessageCircle,
+  music: Music,
+  plug: Plug,
+  unplug: Unplug,
   check: Check,
   circle: Circle,
   'circle-check': CircleCheck,
@@ -340,4 +358,74 @@ export function keyField(
 
   paint(false);
   return node;
+}
+
+/* ---------------------------------------------------------------- dialogs */
+
+export interface AskSpec {
+  title: string;
+  /** What will happen, in a sentence or two. */
+  body?: string;
+  /** The button that goes ahead: "Delete", "Disconnect". Never just "OK". */
+  confirm: string;
+  /** Shown in red, and the safe choice gets the focus. */
+  danger?: boolean;
+  /** On the confirming button; a bin for danger and a tick otherwise. */
+  icon?: IconName;
+}
+
+/**
+ * Ask before doing something, in the panel's own look.
+ *
+ * Replaces window.confirm, which in the tray's WebView2 window shows a bare
+ * system box titled with the page's address, freezes the page's script while
+ * it is open, and cannot say which button destroys something.
+ *
+ * Built on <dialog> with showModal(): the browser supplies the backdrop, the
+ * focus trap and Escape, so none of it is hand-written. Resolves true only
+ * when the confirming button is pressed; Escape, Cancel and a click on the
+ * backdrop all resolve false.
+ */
+export function ask(spec: AskSpec): Promise<boolean> {
+  return new Promise((resolve) => {
+    const dialog = el('dialog', { class: 'ask' });
+    const close = (answer: boolean): void => {
+      dialog.close(answer ? 'yes' : 'no');
+    };
+
+    const cancel = button(null, 'Cancel', () => {
+      close(false);
+    });
+    const go = button(
+      spec.icon ?? (spec.danger === true ? 'trash' : 'check'),
+      spec.confirm,
+      () => {
+        close(true);
+      },
+      spec.danger === true ? 'danger solid' : 'primary',
+    );
+
+    dialog.append(el('h2', {}, spec.title));
+    if (spec.body !== undefined) dialog.append(el('p', {}, spec.body));
+    dialog.append(el('div', { class: 'ask-actions' }, cancel, go));
+
+    // A click whose target is the dialog itself landed on the backdrop: the
+    // content fills the box, so anything inside targets a child.
+    dialog.addEventListener('click', (event) => {
+      if (event.target === dialog) close(false);
+    });
+    dialog.addEventListener(
+      'close',
+      () => {
+        resolve(dialog.returnValue === 'yes');
+        dialog.remove();
+      },
+      { once: true },
+    );
+
+    document.body.append(dialog);
+    dialog.showModal();
+    // Enter on a destructive dialog should not destroy anything.
+    (spec.danger === true ? cancel : go).focus();
+  });
 }

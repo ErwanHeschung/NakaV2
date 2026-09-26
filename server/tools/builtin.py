@@ -166,7 +166,8 @@ def note_files() -> list:
 
 
 @tool(
-    description="Search the user's notes and return matching lines.",
+    description="Search the user's notes, by name and by content, and "
+                "return matching lines.",
     parameters={
         "query": {"type": "string", "description": "Text to look for."},
         "limit": {"type": "integer", "description": "Max results, default 5."},
@@ -180,6 +181,16 @@ def search_notes(query: str, limit: int = 5):
         return "There are no notes yet."
     hits = []
     needle = query.lower()
+    # A note's name first: "my shopping list" is the note called
+    # shopping-list, whose lines never say "shopping list" themselves.
+    wanted = re.sub(r"[\s_-]+", " ", needle).strip()
+    for path in sorted(NOTES_DIR.glob("*.md")):
+        if wanted and wanted in re.sub(r"[\s_-]+", " ", path.stem):
+            body = " / ".join(line.strip() for line in path.read_text(
+                encoding="utf-8").splitlines() if line.strip())
+            hits.append(f"note '{path.stem}': {body[:600]}")
+            if len(hits) >= limit:
+                return "; ".join(hits)
     for path in sorted(NOTES_DIR.glob("*.md")):
         for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
             if needle in line.lower():
