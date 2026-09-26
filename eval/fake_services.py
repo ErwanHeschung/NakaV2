@@ -145,6 +145,8 @@ class Services:
                 item = {"name": name, "uri": f"spotify:{kind}:{name.replace(' ', '')}"}
                 if by:
                     item["artists"] = [{"name": by}]
+                if kind == "track":
+                    item["album"] = {"uri": f"spotify:album:{by or name}Album"}
                 found.append(item)
         return found
 
@@ -172,7 +174,10 @@ class Services:
                 d["is_active"] = d["id"] == params["device_id"]
         if path == "/me/player/play":
             body = json.loads(request.content) if request.content else {}
-            uri = (body.get("uris") or [body.get("context_uri")])[0]
+            self.player["last_play"] = body
+            # A track started inside its album plays the track first.
+            uri = ((body.get("offset") or {}).get("uri")
+                   or (body.get("uris") or [body.get("context_uri")])[0])
             if uri:
                 kind = uri.split(":")[1]
                 name = next(n for n, _ in self.CATALOGUE[kind]

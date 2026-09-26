@@ -212,8 +212,17 @@ def _describe(item: dict) -> str:
 )
 def spotify_play(query: str, kind: str = "track"):
     item = spotify.search(query, kind)
-    body = ({"uris": [item["uri"]]} if kind == "track"
-            else {"context_uri": item["uri"]})
+    album = (item.get("album") or {}).get("uri") if kind == "track" else None
+    if album:
+        # Started inside its album, the way a click in the app does it: the
+        # rest of the album follows, then Spotify's Autoplay if it is on.
+        # Sent alone as {"uris": [track]}, the song was the whole queue and
+        # the music stopped when it ended.
+        body = {"context_uri": album, "offset": {"uri": item["uri"]}}
+    elif kind == "track":
+        body = {"uris": [item["uri"]]}
+    else:
+        body = {"context_uri": item["uri"]}
     spotify.control("PUT", "/me/player/play", json=body)
     return f"Playing {_describe(item)}."
 

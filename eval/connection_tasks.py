@@ -175,7 +175,10 @@ def tasks() -> list[dict]:
              sent_with("paix"), "Rue de la Paix, sent"),
         # spotify
         task("sp-play-song", "Play Get Lucky by Daft Punk.",
-             playing("get lucky"), "Get Lucky playing"),
+             both(playing("get lucky"),
+                  lambda r: fake.player.get("last_play", {}).get("context_uri", "")
+                  .startswith("spotify:album")),
+             "Get Lucky playing, inside its album so the music goes on"),
         task("sp-play-album", "Play the album Kind of Blue.",
              both(playing("kind of blue"),
                   lambda r: fake.player["item"]["uri"].startswith("spotify:album")),
