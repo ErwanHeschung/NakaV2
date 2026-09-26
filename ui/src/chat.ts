@@ -19,6 +19,7 @@
 import { api, type ConversationTurn } from './api.js';
 import { el, replace } from './dom.js';
 import type { ServerEvent, Via } from './events.js';
+import { joinReply, markdown } from './markdown.js';
 import { icon, type IconName } from './ui.js';
 
 const VIA_ICON: Record<Via, IconName> = {
@@ -98,14 +99,14 @@ class TurnView {
   }
 
   add(sentence: string): void {
-    this.text = this.text ? `${this.text} ${sentence}` : sentence;
-    replace(this.her, ...inline(this.text));
+    this.text = joinReply(this.text, sentence);
+    replace(this.her, ...markdown(this.text));
   }
 
   finish(turn: Pick<ConversationTurn, 'naka' | 'tools' | 'interrupted'>): void {
     this.root.classList.remove('live');
     this.text = turn.naka;
-    if (turn.naka) replace(this.her, ...inline(turn.naka));
+    if (turn.naka) replace(this.her, ...markdown(turn.naka));
     else replace(this.her, el('span', { class: 'muted' }, 'nothing said'));
     this.her.parentElement?.classList.toggle('cut', turn.interrupted);
     replace(
@@ -336,24 +337,6 @@ export class Chat {
 }
 
 /* ------------------------------------------------------------ rendering */
-
-/** Her text with *emphasis* shown as emphasis rather than as asterisks. */
-function inline(text: string): (Node | string)[] {
-  const out: (Node | string)[] = [];
-  const pattern = /\*\*([^*]+)\*\*|\*([^*\n]+)\*|`([^`]+)`/gu;
-  let last = 0;
-  for (const match of text.matchAll(pattern)) {
-    const at = match.index;
-    if (at > last) out.push(text.slice(last, at));
-    const [, strong, em, code] = match;
-    if (strong !== undefined) out.push(el('strong', {}, strong));
-    else if (em !== undefined) out.push(el('em', {}, em));
-    else if (code !== undefined) out.push(el('code', {}, code));
-    last = at + match[0].length;
-  }
-  if (last < text.length) out.push(text.slice(last));
-  return out;
-}
 
 /** Tool chips, repeats folded into a count. */
 function tools(names: string[]): HTMLElement[] {

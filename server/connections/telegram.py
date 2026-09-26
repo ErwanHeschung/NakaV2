@@ -18,8 +18,10 @@ to it at all.
 """
 
 import asyncio
+import html
 import json
 import logging
+import re
 import time
 from collections.abc import Awaitable, Callable
 
@@ -34,6 +36,33 @@ OFFSET_FILE = paths.DATA / "telegram.json"
 # Seconds Telegram may hold a poll open before answering with nothing.
 LONG_POLL = 25
 LIMIT = 4096
+
+
+def as_html(text: str) -> str:
+    """Her Markdown in the small HTML subset Telegram renders.
+
+    HTML rather than Telegram's MarkdownV2, whose escaping rules reject a
+    message over one stray full stop. Everything is escaped first, then the
+    few constructs she uses are turned back into tags.
+    """
+    blocks: list[str] = []
+
+    def keep(match: re.Match) -> str:
+        blocks.append(f"<pre>{html.escape(match.group(1).rstrip())}</pre>")
+        return f"\x00{len(blocks) - 1}\x00"
+
+    text = re.sub(r"(?:```|~~~)[^\n]*\n(.*?)(?:```|~~~)", keep, text, flags=re.S)
+    text = html.escape(text)
+    text = re.sub(r"`([^`\n]+)`", r"<code>\1</code>", text)
+    text = re.sub(r"\*\*(.+?)\*\*|__(.+?)__",
+                  lambda m: f"<b>{m.group(1) or m.group(2)}</b>", text)
+    text = re.sub(r"(?<![\w*])\*(?!\s)(.+?)(?<!\s)\*(?!\w)", r"<i>\1</i>", text)
+    text = re.sub(r"~~(.+?)~~", r"<s>\1</s>", text)
+    text = re.sub(r"^#{1,6}\s+(.+)$", r"<b>\1</b>", text, flags=re.M)
+    text = re.sub(r"^[ \t]*[-*+]\s+", "• ", text, flags=re.M)
+    text = re.sub(r"\[([^\]]+)\]\((https?://[^)\s]+)\)",
+                  lambda m: f'<a href="{m.group(2)}">{m.group(1)}</a>', text)
+    return re.sub(r"\x00(\d+)\x00", lambda m: blocks[int(m.group(1))], text)
 
 
 class Telegram(Connection):
@@ -118,8 +147,16 @@ class Telegram(Connection):
             raise Failed("No chat is paired yet.")
         text = text.strip() or "…"
         for start in range(0, len(text), LIMIT):
-            self._call("sendMessage", chat_id=chat,
-                       text=text[start:start + LIMIT])
+            part = text[start:start + LIMIT]
+            try:
+                self._call("sendMessage", chat_id=chat, text=as_html(part),
+                           parse_mode="HTML")
+            except Failed as e:
+                # A cut through a tag, or markup Telegram will not take: the
+                # words matter more than the bold.
+                if "parse" not in str(e).lower():
+                    raise
+                self._call("sendMessage", chat_id=chat, text=part)
 
     def notify(self, text: str, kind: str) -> None:
         """Push a ring to the phone, if connected and wanted. Never raises."""

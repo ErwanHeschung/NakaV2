@@ -15,8 +15,8 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from . import (agent, connections, conversation, events, llm, logprune,
-               logsetup, models, ops, panel, paths, settings, stt, tts,
-               turnlog)
+               logsetup, models, ops, panel, paths, settings, speech, stt,
+               tts, turnlog)
 from .connections import routes as connection_routes
 from .memory import memory
 from .tools import apps, builtin, reminders
@@ -290,8 +290,8 @@ async def chat_endpoint(body: TextIn):
         finally:
             if not finished:
                 interrupted(turn_id, body.text, spoken, actions, "text")
-        await remember(body.text, " ".join(spoken), actions)
-        conversation.record(turn_id, body.text, " ".join(spoken), via="text",
+        await remember(body.text, speech.join(spoken), actions)
+        conversation.record(turn_id, body.text, speech.join(spoken), via="text",
                             tools=actions)
 
     return StreamingResponse(generate(), media_type="application/x-ndjson")
@@ -319,7 +319,7 @@ async def telegram_turn(text: str) -> str:
                 origin="telegram"):
             spoken.append(sentence)
             conversation.said(turn_id, sentence)
-    reply = " ".join(spoken)
+    reply = speech.join(spoken)
     await remember(text, reply, actions)
     conversation.record(turn_id, text, reply, via="telegram", tools=actions)
     return reply
@@ -334,7 +334,7 @@ def interrupted(turn_id: int, user_text: str, spoken: list[str],
     the exchange vanished: the model would not know what it had started
     saying, and the chat would not show that anything was asked.
     """
-    reply = " ".join(spoken)
+    reply = speech.join(spoken)
     log.info("turn %d interrupted after %d sentences", turn_id, len(spoken))
     memory.add_turn(user_text, (reply + " [interrupted]").strip(), actions)
     events.publish("conversation")
@@ -544,6 +544,8 @@ async def converse(file: UploadFile,
         stream = tts.OpusStream() if format == "opus" else None
         first_sound = None
         spoken = []
+        # A reply that is mostly code says so once, instead of going quiet.
+        noted_code = False
         actions: list[dict] = []
         finished = False
 
@@ -553,8 +555,11 @@ async def converse(file: UploadFile,
             # the marker.
             async with ops.Busy():
                 async for sentence in reply_stream(heard, agentic, prompt, actions):
+                    voice = sentence
+                    if speech.is_code(sentence) and not noted_code:
+                        voice, noted_code = speech.CODE_NOTE, True
                     async with models.gpu_lock:
-                        samples = await asyncio.to_thread(tts.synthesize, sentence)
+                        samples = await asyncio.to_thread(tts.synthesize, voice)
                         chunk = (await asyncio.to_thread(stream.push, samples)
                                  if stream else tts.to_pcm16(samples))
                     spoken.append(sentence)
@@ -581,8 +586,8 @@ async def converse(file: UploadFile,
             if not finished:
                 interrupted(turn_id, heard, spoken, actions, "voice")
 
-        await remember(heard, " ".join(spoken), actions)
-        conversation.record(turn_id, heard, " ".join(spoken), via="voice",
+        await remember(heard, speech.join(spoken), actions)
+        conversation.record(turn_id, heard, speech.join(spoken), via="voice",
                             tools=actions)
         total = (time.perf_counter() - start) * 1000
         turnlog.record(
@@ -591,7 +596,7 @@ async def converse(file: UploadFile,
             timings={"upload": t_upload, "stt": t_stt - t_upload,
                      "first_sound": first_sound or 0, "total": total},
         )
-        log.info("reply complete %.0fms %r", total, " ".join(spoken))
+        log.info("reply complete %.0fms %r", total, speech.join(spoken))
 
     if format == "pcm":
         return StreamingResponse(

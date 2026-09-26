@@ -102,7 +102,8 @@ async def play(text: str, record: dict, origin: str = "pc") -> list[str]:
     while agent.pending is not None and record["confirmations"] < 8:
         record["confirmations"] += 1
         spoken += [s async for s in agent.resolve_pending("yes", actions)]
-    memory.add_turn(text, " ".join(spoken), actions)
+    from server.speech import join
+    memory.add_turn(text, join(spoken), actions)
     for a in actions:
         try:
             arguments = json.loads(a["arguments"] or "{}")
@@ -135,7 +136,7 @@ async def run_task(task: dict) -> dict:
         for text in task["ask"]:
             record["turns"] += 1
             spoken = await play(text, record, origin)
-            record["said"] += " ".join(spoken) + " "
+            record["said"] += " ".join(s.strip() for s in spoken) + " "
         score = 1.0 if task["check"](record) else 0.0
         if not score and spoken and spoken[-1].rstrip().endswith("?"):
             record["turns"] += 1

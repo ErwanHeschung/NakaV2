@@ -170,6 +170,7 @@ list once said.
 | uv | Apache-2.0 or MIT | https://github.com/astral-sh/uv |
 | CPython, as uv installs it | PSF-2.0 | https://www.python.org/ |
 | Lucide icons (vendored into the panel) | ISC | https://lucide.dev/ |
+| highlight.js (vendored into the panel) | BSD-3-Clause | https://highlightjs.org/ |
 | Simple Icons brand logos (vendored into the panel; the logos are their owners' trademarks) | CC0-1.0 | https://simpleicons.org/ |
 | Microsoft Edge WebView2 runtime | Microsoft terms | https://developer.microsoft.com/microsoft-edge/webview2/ |
 | Inno Setup (builds the installer; not shipped) | Inno Setup Licence | https://jrsoftware.org/ |

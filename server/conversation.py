@@ -76,7 +76,7 @@ def _backfill() -> None:
                     "id": written + 1,
                     "at": old.get("at", ""),
                     "user": old.get("heard", ""),
-                    "naka": " ".join(spoken) if isinstance(spoken, list) else str(spoken),
+                    "naka": " ".join(spoken) if isinstance(spoken, list) else str(spoken),  # old entries: sentences, no Markdown
                     "via": "voice",
                     "tools": [t.get("name", "") for t in old.get("tools") or []],
                     "interrupted": False,

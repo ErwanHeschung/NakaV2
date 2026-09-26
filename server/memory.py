@@ -94,6 +94,20 @@ SUMMARY_PROMPT = (
 )
 
 
+# In code rather than persona.md: it describes how the app treats her
+# words, which is true whoever she is, and a persona written before this
+# existed would otherwise never learn it.
+FORMATTING = """## How your words reach them
+
+Everything you say is spoken aloud and also shown in the chat, which renders \
+Markdown. Talk in plain sentences first; that is what they hear. When \
+something is easier to read than to hear (steps, a list, code, a command, \
+a link, a file path), you may also write it in Markdown: a list, **bold**, \
+`backticks` or a fenced code block. The voice skips code blocks, links, \
+tables and long paths, so never rely on them being heard: say in a few \
+words what they are, and that they are in the chat."""
+
+
 class Turn(NamedTuple):
     """One exchange, including what was actually done during it.
 
@@ -178,7 +192,7 @@ class Memory:
         log.info("persona and facts reloaded")
 
     def system_prompt(self) -> str:
-        parts = [self.persona]
+        parts = [self.persona, FORMATTING]
         if self.facts:
             # Numbered so they can be referred to exactly. Deleting by matching
             # the wording was ambiguous — every fact shares the user's name —

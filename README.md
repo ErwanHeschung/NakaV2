@@ -30,6 +30,7 @@ She is also meant to be someone rather than something: a persona you can edit, a
 - **Push to talk from anywhere.** Hold right Ctrl (or any key you choose) in a game, an editor or on the desktop. The key is global.
 - **Fast replies.** She starts speaking as soon as the first sentence is ready, typically 0.5 to 0.8 seconds after you stop talking.
 - **A voice of her own.** Kokoro speech with a tunable effects chain (pitch, formants, chorus, compression) that gives her a consistent, slightly synthetic character.
+- **Readable replies.** The chat renders her Markdown: lists, tables, links, and code blocks with syntax colours and a copy button. The voice skips what should not be read aloud (code, links, tables, full paths, hashes) and says the code is in the chat instead.
 - **Memory.** She keeps a short list of facts about you and a rolling summary of the conversation. You can read and edit both in the panel.
 - **Tools.** Timers that ring, reminders for a time of day that survive a restart, notes in a plain folder on your disk, the clock, GPU status.
 - **Opens your apps and games.** "Open Fortnite", "launch Spotify", "I want to play Apex": anything in the Start menu, your Steam library or your Epic library, found by name even when misheard.

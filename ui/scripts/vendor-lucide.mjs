@@ -34,6 +34,7 @@ const ICONS = [
   'Brain',
   'Check',
   'Circle',
+  'Copy',
   'CircleCheck',
   'ChevronRight',
   'CircleAlert',

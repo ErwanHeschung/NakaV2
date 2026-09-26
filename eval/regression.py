@@ -81,7 +81,7 @@ def main():
             continue
 
         results[text] = round(ms)
-        reply = " ".join(spoken)
+        reply = " ".join(s.strip() for s in spoken)
         if not reply.strip():
             failures.append((text, "empty reply"))
 

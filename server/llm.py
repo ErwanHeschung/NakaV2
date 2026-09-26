@@ -8,20 +8,17 @@ speaking before the whole reply exists.
 
 import json
 import logging
-import re
 from collections.abc import AsyncIterator
 
 import httpx
 
-from . import settings
+from . import settings, speech
 
 log = logging.getLogger("naka.llm")
 
-# A run of terminators followed by whitespace. The run keeps "..." intact
-# instead of splitting it into three empty sentences, and requiring the
-# trailing space means a decimal ("18.5") or a mid-stream token that merely
-# ends in a dot is not mistaken for the end of a sentence.
-SENTENCE_END = re.compile(r"[.!?]+[\"')\]]*\s")
+# Replies are cut into segments by speech.Segmenter: at the end of a
+# sentence as before, and also at line breaks and around code blocks, with
+# the whitespace kept so the chat can show the Markdown as it was written.
 
 
 # One client for the process, not one per call.
@@ -68,7 +65,7 @@ def _body(messages: list[dict], stream: bool,
 async def stream_sentences(messages: list[dict]) -> AsyncIterator[str]:
     """Yield complete sentences as soon as their closing punctuation arrives."""
     url = f"{settings.LLM['url'].rstrip('/')}/v1/chat/completions"
-    buffer = ""
+    segmenter = speech.Segmenter()
 
     async with client().stream("POST", url, json=_body(messages, True)) as response:
         response.raise_for_status()
@@ -82,16 +79,11 @@ async def stream_sentences(messages: list[dict]) -> AsyncIterator[str]:
             piece = delta.get("content")
             if not piece:
                 continue
-            buffer += piece
-            while (match := SENTENCE_END.search(buffer)) is not None:
-                sentence, buffer = buffer[: match.end()], buffer[match.end():]
-                sentence = sentence.strip()
-                if sentence:
-                    yield sentence
+            for segment in segmenter.feed(piece):
+                yield segment
 
-    tail = buffer.strip()
-    if tail:
-        yield tail
+    for segment in segmenter.flush():
+        yield segment
 
 
 async def complete(messages: list[dict]) -> str:
@@ -124,7 +116,7 @@ async def stream_with_tools(messages: list[dict], tools: list[dict],
         body["tools"] = tools
         body["tool_choice"] = "auto"
 
-    buffer = ""
+    segmenter = speech.Segmenter()
     finish = None
     # Merged by index: arguments arrive a fragment at a time across deltas.
     partial: dict[int, dict] = {}
@@ -157,16 +149,11 @@ async def stream_with_tools(messages: list[dict], tools: list[dict],
             piece = delta.get("content")
             if not piece:
                 continue
-            buffer += piece
-            while (match := SENTENCE_END.search(buffer)) is not None:
-                sentence, buffer = buffer[: match.end()], buffer[match.end():]
-                sentence = sentence.strip()
-                if sentence:
-                    yield "sentence", sentence
+            for segment in segmenter.feed(piece):
+                yield "sentence", segment
 
-    tail = buffer.strip()
-    if tail:
-        yield "sentence", tail
+    for segment in segmenter.flush():
+        yield "sentence", segment
     if partial:
         yield "tool_calls", [partial[i] for i in sorted(partial)]
     yield "finish", finish
@@ -174,11 +161,5 @@ async def stream_with_tools(messages: list[dict], tools: list[dict],
 
 def split_sentences(text: str) -> list[str]:
     """Split a finished reply the same way the streaming path splits a live one."""
-    out, buffer = [], text
-    while (match := SENTENCE_END.search(buffer)) is not None:
-        sentence, buffer = buffer[: match.end()].strip(), buffer[match.end():]
-        if sentence:
-            out.append(sentence)
-    if buffer.strip():
-        out.append(buffer.strip())
-    return out
+    segmenter = speech.Segmenter()
+    return segmenter.feed(text) + segmenter.flush()

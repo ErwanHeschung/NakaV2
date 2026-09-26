@@ -280,6 +280,225 @@ body {
   border-radius: 4px;
 }
 
+/* Her replies are Markdown, rendered into block elements: the bubble's
+   pre-wrap would add the source's line breaks on top of them. */
+.msg.her .bubble {
+  white-space: normal;
+  /* Sized by its content, so a long line of code would stretch it past the
+     message's width; capped, the code block scrolls instead. */
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.bubble > :first-child {
+  margin-top: 0;
+}
+
+.bubble > :last-child {
+  margin-bottom: 0;
+}
+
+.bubble p {
+  margin: 0 0 8px;
+}
+
+.bubble ul,
+.bubble ol {
+  margin: 4px 0 8px;
+  padding-left: 20px;
+}
+
+.bubble li + li {
+  margin-top: 2px;
+}
+
+.bubble li > ul,
+.bubble li > ol {
+  margin: 2px 0;
+}
+
+.bubble strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.bubble a {
+  color: var(--live);
+  text-decoration: none;
+  border-bottom: 1px solid rgba(77, 159, 255, 0.35);
+}
+
+.bubble a:hover {
+  border-bottom-color: var(--live);
+}
+
+.bubble .md-heading {
+  margin: 12px 0 6px;
+  color: var(--ink);
+  font-size: 13.5px;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.bubble blockquote {
+  margin: 6px 0 8px;
+  padding: 2px 0 2px 10px;
+  border-left: 2px solid var(--line);
+  color: var(--ink-faint);
+}
+
+.bubble hr {
+  border: 0;
+  border-top: 1px solid var(--line);
+  margin: 10px 0;
+}
+
+.md-code {
+  margin: 6px 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: rgba(0, 0, 0, 0.3);
+  overflow: hidden;
+}
+
+.md-code-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 6px 4px 10px;
+  border-bottom: 1px solid var(--line-soft);
+  font-size: 11px;
+  color: var(--ink-faint);
+}
+
+.md-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font: inherit;
+  color: var(--ink-faint);
+  background: none;
+  border: 0;
+  border-radius: 5px;
+  padding: 2px 6px;
+  cursor: pointer;
+}
+
+.md-copy:hover {
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.md-code pre,
+.md-table {
+  scrollbar-width: thin;
+  scrollbar-color: #33394c transparent;
+}
+
+.md-code pre {
+  margin: 0;
+  padding: 9px 11px;
+  overflow-x: auto;
+  white-space: pre;
+}
+
+.bubble .md-code code {
+  background: none;
+  padding: 0;
+  font-size: 12px;
+  color: var(--ink);
+}
+
+/* Code colours, in the panel's own palette rather than a stock theme. */
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-built_in,
+.hljs-type {
+  color: #c792ea;
+}
+
+.hljs-string,
+.hljs-regexp,
+.hljs-addition,
+.hljs-attr .hljs-string {
+  color: #a5d6a7;
+}
+
+.hljs-number,
+.hljs-literal,
+.hljs-symbol {
+  color: #f7b267;
+}
+
+.hljs-comment,
+.hljs-quote {
+  color: var(--ink-faint);
+  font-style: italic;
+}
+
+.hljs-title,
+.hljs-title.function_,
+.hljs-section {
+  color: #82aaff;
+}
+
+.hljs-attr,
+.hljs-attribute,
+.hljs-variable,
+.hljs-template-variable,
+.hljs-params {
+  color: #f2c3ff;
+}
+
+.hljs-tag,
+.hljs-name,
+.hljs-selector-class,
+.hljs-selector-id {
+  color: #7fdbca;
+}
+
+.hljs-meta,
+.hljs-doctag {
+  color: #89ddff;
+}
+
+.hljs-deletion {
+  color: var(--bad);
+}
+
+.hljs-emphasis {
+  font-style: italic;
+}
+
+.hljs-strong {
+  font-weight: 600;
+}
+
+.md-table {
+  margin: 6px 0 8px;
+  overflow-x: auto;
+}
+
+.md-table table {
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.md-table th,
+.md-table td {
+  padding: 4px 9px;
+  border: 1px solid var(--line);
+  text-align: left;
+}
+
+.md-table th {
+  color: var(--ink);
+  font-weight: 600;
+  background: rgba(255, 255, 255, 0.04);
+}
+
 .msg .meta {
   display: flex;
   align-items: center;
