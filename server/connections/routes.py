@@ -8,14 +8,16 @@ OAuth round trip, and pairing a Telegram chat.
 
 import asyncio
 import html
+import json
 import logging
+import re
 import webbrowser
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
-from .. import events
+from .. import events, mcpclient
 from ..tools.registry import audit
 from . import ALL, oauth, secrets
 from .base import Connection, Failed, Status
@@ -155,3 +157,96 @@ async def oauth_callback(state: str = "", code: str = "", error: str = ""):
     return HTMLResponse(PAGE.format(
         title=f"{html.escape(connection.label)} is connected",
         text="You can close this tab and go back to Naka."))
+
+
+# -------------------------------------------------------------------- MCP
+
+
+@router.get("/mcp")
+async def mcp_list():
+    configured = mcpclient.load()
+    running = mcpclient.servers()
+    views = []
+    for name, spec in configured.items():
+        server = running.get(name) or mcpclient.Server(name, spec)
+        server.spec = spec
+        views.append(server.view())
+    return {"servers": views, "file": str(mcpclient.CONFIG)}
+
+
+class McpIn(BaseModel):
+    command: str
+    args: list[str] = []
+    # New or changed values only; a key sent empty is removed. Values are
+    # vaulted, never written to mcp.json.
+    env: dict[str, str] = {}
+    confirm: str = "writes"
+    disabled: bool = False
+
+
+_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9 _.-]{0,39}")
+
+
+@router.put("/mcp/servers/{name}")
+async def mcp_save(name: str, body: McpIn):
+    if not _NAME.fullmatch(name):
+        raise HTTPException(status_code=400, detail="Name: letters, digits, "
+                            "spaces, dots and dashes, up to 40.")
+    if not body.command.strip():
+        raise HTTPException(status_code=400, detail="A command is needed.")
+    if body.confirm not in ("writes", "always", "never"):
+        raise HTTPException(status_code=400, detail="unknown confirm policy")
+    servers = mcpclient.load()
+    old = servers.get(name, {})
+    env_keys = dict(old.get("env") or {})
+    vaulted = {}
+    try:
+        vaulted = json.loads(secrets.get("mcp", f"{name}.env") or "{}")
+    except ValueError:
+        vaulted = {}
+    for key, value in body.env.items():
+        key = key.strip()
+        if not key:
+            continue
+        if value == "":
+            env_keys.pop(key, None)
+            vaulted.pop(key, None)
+        else:
+            env_keys[key] = mcpclient.IN_VAULT
+            vaulted[key] = value
+    if vaulted:
+        await asyncio.to_thread(secrets.put, "mcp", f"{name}.env",
+                                json.dumps(vaulted))
+    spec = {"command": body.command.strip(), "args": body.args,
+            **({"env": env_keys} if env_keys else {}),
+            **({"confirm": body.confirm} if body.confirm != "writes" else {}),
+            **({"disabled": True} if body.disabled else {})}
+    servers[name] = spec
+    mcpclient.save(servers)
+    audit(f"mcp.{name}", {"command": spec["command"], "args": body.args,
+                          "disabled": body.disabled}, "saved")
+    await asyncio.to_thread(mcpclient.restart, name)
+    events.publish("connections")
+    return await mcp_list()
+
+
+@router.post("/mcp/servers/{name}/restart")
+async def mcp_restart(name: str):
+    try:
+        await asyncio.to_thread(mcpclient.restart, name)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"no MCP server {name!r}")
+    return await mcp_list()
+
+
+@router.delete("/mcp/servers/{name}")
+async def mcp_delete(name: str):
+    servers = mcpclient.load()
+    if servers.pop(name, None) is None:
+        raise HTTPException(status_code=404, detail=f"no MCP server {name!r}")
+    mcpclient.save(servers)
+    await asyncio.to_thread(mcpclient.remove, name)
+    await asyncio.to_thread(secrets.drop, "mcp", f"{name}.env")
+    audit(f"mcp.{name}", {"delete": True}, "ok")
+    events.publish("connections")
+    return await mcp_list()

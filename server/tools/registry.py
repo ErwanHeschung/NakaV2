@@ -114,15 +114,21 @@ class Tool:
     # calendar invitation. Once one of these has answered, the rest of the
     # turn is treated as possibly steered by that text.
     untrusted: bool = False
+    # Set for tools registered at runtime (an MCP server's), which have no
+    # entry in tools.yaml: allowlisted by their server's switch instead, and
+    # destructive or not by what the server says about each one.
+    dynamic_destructive: bool | None = None
 
     @property
     def enabled(self) -> bool:
-        if not _allowlist.get(self.name, {}).get("enabled", False):
+        if not self.allowlisted:
             return False
         return self.power is None or power_on(self.power)
 
     @property
     def allowlisted(self) -> bool:
+        if self.dynamic_destructive is not None:
+            return True
         return _allowlist.get(self.name, {}).get("enabled", False)
 
     @property
@@ -134,6 +140,8 @@ class Tool:
 
     @property
     def destructive(self) -> bool:
+        if self.dynamic_destructive is not None:
+            return self.dynamic_destructive
         return _allowlist.get(self.name, {}).get("destructive", True)
 
     def needs_confirmation(self, arguments: dict, tainted: bool = False) -> bool:
@@ -164,6 +172,9 @@ def power_on(power: str) -> bool:
         # Imported here: connections register tools, so they import this.
         from ..connections import ready
         return ready(power.removeprefix("conn."))
+    if power.startswith("mcp."):
+        from .. import mcpclient
+        return mcpclient.running(power.removeprefix("mcp."))
     return bool(settings.POWERS.get(power))
 
 
@@ -184,6 +195,16 @@ def tool(description: str, parameters: dict, required: list[str] | None = None,
                                summary or description, untrusted)
         return fn
     return decorator
+
+
+def register(tool_obj: Tool) -> None:
+    """Add a tool that exists only at runtime: an MCP server's."""
+    _registry[tool_obj.name] = tool_obj
+
+
+def unregister(prefix: str) -> None:
+    for name in [n for n in _registry if n.startswith(prefix)]:
+        del _registry[name]
 
 
 def listed() -> list[Tool]:

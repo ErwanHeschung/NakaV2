@@ -32,7 +32,8 @@ import httpx
 from . import llm, settings
 from .memory import _clip
 from . import connections  # noqa: F401  registers their tools
-from .tools import apps, builtin, files, reminders, shell, web  # noqa: F401
+from .tools import (apps, builtin, clipboard, documents,  # noqa: F401
+                    files, history, reminders, shell, web)
 from .tools.registry import AGENT, available, call, get
 
 log = logging.getLogger("naka.agent")
@@ -155,9 +156,37 @@ PROMISE = re.compile(
     r"one moment|give me a (?:sec|second|moment)|on it|right away|"
     r"right now)\b", re.IGNORECASE)
 
+# Things said as done that only a call can do, by the tool that does them.
+# Heard in the bench: a translation read out, then "I've put it on your
+# clipboard", with no call made and nothing copied.
+CLAIMS = {
+    # Said as written, not read: "the text on your clipboard says" is not a
+    # claim to have copied anything.
+    "write_clipboard": re.compile(
+        r"\b(?:put|placed|copied|added|saved|popped|dropped)\b[^.!?]{0,40}"
+        r"\bclipboard\b|\bcopied (?:it|that|this)\b|\bready to paste\b",
+        re.IGNORECASE),
+}
+
+CLAIMED = ("You said {what} is done, but you did not call {tool}, so it did "
+           "not happen. Call {tool} now with the full text. Do not repeat "
+           "what you already said.")
+
 NUDGE = ("You just said you would do something, but you made no tool call, so "
          "nothing happened. If your tools can do it, make the call now. If "
          "they cannot, say so in one sentence. Do not announce it again.")
+
+
+def _unbacked_claim(turn: "Turn", said: str) -> str | None:
+    """The tool a reply says it used, when it is offered and was not."""
+    for name, claim in CLAIMS.items():
+        if not claim.search(said):
+            continue
+        made = any(done.startswith(f"{name}:") for done in turn.done)
+        offered = any(t["function"]["name"] == name for t in _offered(turn))
+        if offered and not made:
+            return name
+    return None
 
 
 def powers_on() -> list[str]:
@@ -415,6 +444,17 @@ async def _loop(turn: Turn, actions: list[dict] | None) -> AsyncIterator[str]:
         spoke = bool(said)
 
         if not calls:
+            # "It's on your clipboard", with no call behind it: told once,
+            # the model makes the call it claimed to have made.
+            claimed = _unbacked_claim(turn, " ".join(said)) if said else None
+            if claimed and not turn.nudged:
+                turn.nudged = True
+                log.info("claimed %s without calling it; nudging", claimed)
+                working.append({"role": "assistant", "content": " ".join(said)})
+                working.append({"role": "system", "content": CLAIMED.format(
+                    what="that", tool=claimed)})
+                turn.step += 1
+                continue
             # "I'll make that file now. One second." — and then nothing,
             # which was most of what went wrong in real use. Told once that
             # nothing happened, the model makes the call it described.

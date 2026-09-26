@@ -141,6 +141,28 @@ tools:
     # Like a timer: what it was for is lost, and nothing brings it back.
     destructive: true
 
+  # --- the clipboard, and past conversations -------------------------------
+
+  read_clipboard:
+    enabled: true
+    destructive: false
+
+  write_clipboard:
+    enabled: true
+    # Replaces what was copied; asks once the turn has been steered from
+    # outside. See server/tools/clipboard.py.
+    destructive: false
+
+  search_conversations:
+    enabled: true
+    destructive: false
+
+  read_document:
+    enabled: true
+    # Only the person's document folders unless PowerShell is on; what it
+    # reads taints the turn. See server/tools/documents.py.
+    destructive: false
+
   # --- apps and games: only what Windows and the launchers list ------------
 
   open_app:

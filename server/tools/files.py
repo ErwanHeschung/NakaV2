@@ -89,6 +89,10 @@ def read_file(path: str, start_line: int = 1):
     target = resolve(path)
     if not target.is_file():
         raise ValueError(f"{target} is not a file")
+    if target.suffix.lower() in (".pdf", ".docx", ".pptx"):
+        # Their bytes are not text; read as text they are pages of noise.
+        return (f"{target.name} is a document, not a text file: read it "
+                f"with read_document, name {str(target)!r}.")
     raw = target.read_bytes()
     # Windows PowerShell's Out-File writes UTF-16, byte order mark first.
     encoding = "utf-16" if raw.startswith((b"\xff\xfe", b"\xfe\xff")) else "utf-8-sig"
@@ -108,7 +112,9 @@ def read_file(path: str, start_line: int = 1):
         "Find files or folders by name when you do not know where they are. "
         "Searches the workspace, then the home folder (or the folder you "
         "give), a few levels deep, skipping AppData and caches. The name can "
-        "be part of the name, or a pattern like *.pdf."
+        "be part of the name, or a pattern like *.pdf. To read a document "
+        "(PDF, Word, a list, a letter) call read_document with its name "
+        "directly: it finds it by itself."
     ),
     parameters={
         "name": {"type": "string",

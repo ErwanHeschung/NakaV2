@@ -33,6 +33,9 @@ She is also meant to be someone rather than something: a persona you can edit, a
 - **Readable replies.** The chat renders her Markdown: lists, tables, links, and code blocks with syntax colours and a copy button. The voice skips what should not be read aloud (code, links, tables, full paths, hashes) and says the code is in the chat instead.
 - **Memory.** She keeps a short list of facts about you and a rolling summary of the conversation. You can read and edit both in the panel.
 - **Tools.** Timers that ring, reminders for a time of day that survive a restart, notes in a plain folder on your disk, the clock, GPU status.
+- **Your clipboard and your documents.** "Summarise what I copied", "translate my clipboard and put it back", "how much is the rent in my lease?": PDF, Word, PowerPoint and text, found by name in your document folders.
+- **Remembers every conversation.** "What was that game you recommended last week?" searches everything you have said to each other, not only what she holds in mind.
+- **MCP servers.** Plug in other people's tools through the Model Context Protocol: paste a server's configuration from its instructions and she can use it, with the same guardrails as her own tools.
 - **Opens your apps and games.** "Open Fortnite", "launch Spotify", "I want to play Apex": anything in the Start menu, your Steam library or your Epic library, found by name even when misheard.
 - **Optional connections.** Telegram, Google Calendar, the weather and Spotify, each off until you switch it on and set it up with your own account.
 - **Optional web access.** Search the web and read pages when she needs something recent. Off until you turn it on.

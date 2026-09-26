@@ -142,3 +142,43 @@ def heard(turn_id: int, text: str, via: str) -> None:
 def said(turn_id: int, sentence: str) -> None:
     events.publish("turn", id=turn_id, phase="sentence", text=sentence)
 
+
+
+# ---------------------------------------------------------------- search
+
+_STOP = {"the", "a", "an", "and", "or", "to", "of", "in", "on", "for", "is",
+         "it", "i", "you", "we", "me", "my", "about", "what", "did", "do",
+         "that", "this", "with", "was", "were", "be", "are", "at", "our",
+         "us", "talk", "talked", "said", "say", "tell", "when"}
+
+
+def _words(text: str) -> set[str]:
+    import re
+    import unicodedata
+    text = unicodedata.normalize("NFKD", text.lower())
+    text = "".join(c for c in text if not unicodedata.combining(c))
+    return {w for w in re.findall(r"[a-z0-9]+", text) if w not in _STOP}
+
+
+def search(query: str = "", day: str | None = None, limit: int = 5,
+           before: int | None = None) -> list[dict]:
+    """Past turns that match the words asked about, best first; or, with
+    only a day, that day's turns in order. `day` is YYYY-MM-DD."""
+    wanted = _words(query)
+    with _lock:
+        turns = list(_load())
+    if before is not None:
+        turns = [t for t in turns if t["id"] < before]
+    if day:
+        turns = [t for t in turns if str(t.get("at", "")).startswith(day)]
+    if not wanted:
+        return turns[:limit] if day else turns[-limit:]
+    scored = []
+    for index, turn in enumerate(turns):
+        found = _words(f"{turn.get('user', '')} {turn.get('naka', '')}")
+        hits = len(wanted & found)
+        if hits:
+            # Matching words first; among equals, the more recent.
+            scored.append((hits, index, turn))
+    scored.sort(key=lambda s: (-s[0], -s[1]))
+    return [turn for _, _, turn in scored[:limit]]

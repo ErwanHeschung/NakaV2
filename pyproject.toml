@@ -19,6 +19,8 @@ dependencies = [
     "trafilatura>=2.2.0",
     "httpx>=0.28.1",
     "keyring>=25.6.0",
+    # Reading PDFs for read_document. Pure Python, no system library.
+    "pypdf>=6.0.0",
 ]
 
 [tool.uv]

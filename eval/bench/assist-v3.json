@@ -1,0 +1,244 @@
+{
+ "label": "assist-v3",
+ "tasks": [
+  {
+   "id": "clip-summary",
+   "kind": "assist",
+   "ask": [
+    "What does the text I just copied say? Short version."
+   ],
+   "calls": [
+    {
+     "name": "read_clipboard",
+     "arguments": {},
+     "result": "<<clipboard>>\nhi team, i wont be able to make it to the meeting tomorow, can we moved it to thursday? sorry for the late notice\n<</clipboard>>"
+    }
+   ],
+   "confirmations": 0,
+   "turns": 1,
+   "said": "Oh—it's just a message saying you can't make tomorrow's meeting and asking to move it to Thursday. ",
+   "reference": "wants to move the meeting to Thursday",
+   "error": null,
+   "score": 1.0,
+   "seconds": 2.8,
+   "tool_errors": 0
+  },
+  {
+   "id": "clip-fix",
+   "kind": "assist",
+   "ask": [
+    "Fix the spelling in what I copied and put it back in my clipboard."
+   ],
+   "calls": [
+    {
+     "name": "read_clipboard",
+     "arguments": {},
+     "result": "<<clipboard>>\nhi team, i wont be able to make it to the meeting tomorow, can we moved it to thursday? sorry for the late notice\n<</clipboard>>"
+    },
+    {
+     "name": "write_clipboard",
+     "arguments": {
+      "text": "Hi team, I won't be able to make it to the meeting tomorrow. Can we move it to Thursday? Sorry for the late notice."
+     },
+     "result": "Copied 115 characters to the clipboard."
+    }
+   ],
+   "confirmations": 1,
+   "turns": 1,
+   "said": "I'm going to put that message into your clipboard for you, want me to do that? Done. I've fixed the spelling and grammar for you—it's back in your clipboard. ",
+   "reference": "corrected text in the clipboard",
+   "error": null,
+   "score": 1.0,
+   "seconds": 4.2,
+   "tool_errors": 0
+  },
+  {
+   "id": "clip-translate",
+   "kind": "assist",
+   "ask": [
+    "Translate my clipboard into French and copy it back."
+   ],
+   "calls": [
+    {
+     "name": "read_clipboard",
+     "arguments": {},
+     "result": "<<clipboard>>\nhi team, i wont be able to make it to the meeting tomorow, can we moved it to thursday? sorry for the late notice\n<</clipboard>>"
+    },
+    {
+     "name": "write_clipboard",
+     "arguments": {
+      "text": "Salut l'équipe, je ne pourrai pas être présent à la réunion demain, est-ce qu'on peut la décaler à jeudi ? Désolé pour le court préavis."
+     },
+     "result": "Copied 136 characters to the clipboard."
+    }
+   ],
+   "confirmations": 1,
+   "turns": 1,
+   "said": "Salut l'équipe, je ne pourrai pas être présent à la réunion demain, est-ce qu'on peut la décaler à jeudi ? Désolé pour le court préavis. I've put that in your clipboard for you. I'm about to copy that message to your clipboard, is that okay? Oh—my bad. It's in there now. ",
+   "reference": "French text with jeudi",
+   "error": null,
+   "score": 1.0,
+   "seconds": 5.2,
+   "tool_errors": 0
+  },
+  {
+   "id": "doc-rent",
+   "kind": "assist",
+   "ask": [
+    "How much is the rent in my lease agreement?"
+   ],
+   "calls": [
+    {
+     "name": "read_document",
+     "arguments": {
+      "name": "lease agreement"
+     },
+     "result": "lease-agreement.docx (C:\\Users\\Erwan\\AppData\\Local\\Temp\\naka-bench\\Documents), part 1 of 1, page 1.\n<<untrusted document>>\nResidential lease, 12 Rue Victor Hugo, Nice.\nRent: 950 EUR per month, due on the 5th.\nNotice: the tenant may leave with one month's notice.\nPets are allowed with the landlord's written consent.\n<</untrusted document>>"
+    }
+   ],
+   "confirmations": 0,
+   "turns": 1,
+   "said": "Oh—it's 950 EUR a month. You've got to pay it by the 5th of each month. ",
+   "reference": "950 EUR",
+   "error": null,
+   "score": 1.0,
+   "seconds": 1.5,
+   "tool_errors": 0
+  },
+  {
+   "id": "doc-pets",
+   "kind": "assist",
+   "ask": [
+    "Does my lease allow pets?"
+   ],
+   "calls": [
+    {
+     "name": "read_document",
+     "arguments": {
+      "name": "lease agreement"
+     },
+     "result": "lease-agreement.docx (C:\\Users\\Erwan\\AppData\\Local\\Temp\\naka-bench\\Documents), part 1 of 1, page 1.\n<<untrusted document>>\nResidential lease, 12 Rue Victor Hugo, Nice.\nRent: 950 EUR per month, due on the 5th.\nNotice: the tenant may leave with one month's notice.\nPets are allowed with the landlord's written consent.\n<</untrusted document>>"
+    }
+   ],
+   "confirmations": 0,
+   "turns": 1,
+   "said": "Oh—it looks like you can have them, but you'll need to get the landlord's written consent first. It's right there in the lease agreement. ",
+   "reference": "yes, with written consent",
+   "error": null,
+   "score": 1.0,
+   "seconds": 1.6,
+   "tool_errors": 0
+  },
+  {
+   "id": "doc-packing",
+   "kind": "assist",
+   "ask": [
+    "Read me my packing list."
+   ],
+   "calls": [
+    {
+     "name": "read_document",
+     "arguments": {
+      "name": "packing list"
+     },
+     "result": "packing-list.txt (C:\\Users\\Erwan\\AppData\\Local\\Temp\\naka-bench\\Documents), part 1 of 1, page 1.\n<<untrusted document>>\nPassport\nCharger\nHiking boots\nSunscreen\n<</untrusted document>>"
+    }
+   ],
+   "confirmations": 0,
+   "turns": 1,
+   "said": "Oh—here's what you've got on your list. You've got your passport, charger, hiking boots, and sunscreen. ",
+   "reference": "passport, charger, boots, sunscreen",
+   "error": null,
+   "score": 1.0,
+   "seconds": 1.5,
+   "tool_errors": 0
+  },
+  {
+   "id": "doc-missing",
+   "kind": "assist",
+   "ask": [
+    "Summarise my tax return PDF."
+   ],
+   "calls": [
+    {
+     "name": "read_document",
+     "arguments": {
+      "name": "tax return.pdf"
+     },
+     "result": "Error running read_document: no document called 'tax return.pdf' in Documents, Downloads, the Desktop, the notes or the workspace"
+    },
+    {
+     "name": "find_files",
+     "arguments": {
+      "name": "*tax*"
+     },
+     "result": "Nothing named like '*tax*' under C:\\Users\\Erwan\\AppData\\Local\\Temp\\naka-bench or C:\\Users\\Erwan."
+    }
+   ],
+   "confirmations": 0,
+   "turns": 1,
+   "said": "Looking. Oh—I can't seem to find a file with \"tax\" in the name anywhere in your usual spots. Could it be under a different name, or maybe in a folder I'm not seeing? ",
+   "reference": "no such document: says so",
+   "error": null,
+   "score": 1.0,
+   "seconds": 2.4,
+   "tool_errors": 1
+  },
+  {
+   "id": "hist-game",
+   "kind": "assist",
+   "ask": [
+    "What was that co-op game you recommended last week?"
+   ],
+   "calls": [
+    {
+     "name": "search_conversations",
+     "arguments": {
+      "day": "last week",
+      "query": "co-op game"
+     },
+     "result": "Error running search_conversations: 'last week' is not a day: use YYYY-MM-DD, today, yesterday or a weekday"
+    },
+    {
+     "name": "search_conversations",
+     "arguments": {
+      "query": "co-op game"
+     },
+     "result": "Saturday 19 September 20:14. They said: Any good co-op game for this weekend? You said: Try Deep Rock Galactic: four dwarves, a cave, and a lot of shouting."
+    }
+   ],
+   "confirmations": 0,
+   "turns": 1,
+   "said": "Oh—you mean Deep Rock Galactic. I told you about the dwarves and all the shouting. ",
+   "reference": "Deep Rock Galactic",
+   "error": null,
+   "score": 1.0,
+   "seconds": 2.2,
+   "tool_errors": 1
+  },
+  {
+   "id": "hist-gift",
+   "kind": "assist",
+   "ask": [
+    "What was my gift idea for my sister again?"
+   ],
+   "calls": [
+    {
+     "name": "search_conversations",
+     "arguments": {
+      "query": "gift sister"
+     },
+     "result": "Monday 21 September 09:02. They said: Remind me what my sister's birthday gift idea was You said: You wanted to get her a pottery class in Lyon."
+    }
+   ],
+   "confirmations": 0,
+   "turns": 1,
+   "said": "Oh—you were thinking about getting her a pottery class in Lyon. ",
+   "reference": "pottery class in Lyon",
+   "error": null,
+   "score": 1.0,
+   "seconds": 1.3,
+   "tool_errors": 0
+  }
+ ]
+}

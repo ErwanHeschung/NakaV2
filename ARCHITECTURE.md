@@ -66,6 +66,10 @@ A single `asyncio.Lock` serialises GPU work in the server. One inference at a ti
 
 **Apps and games.** `server/tools/apps.py` opens what is installed, by name. It never runs a path or a command the model wrote: it picks from an index of the Start menu (`Get-StartApps`), Steam's library manifests and Epic's install manifests, built in the background at startup and rebuilt on a miss. Names are matched loosely, since they come through speech recognition ("fort night", "hollow night"), with English aliases for a French Windows' own apps; a close call between two entries is handed back for her to ask about. Everything starts through `explorer.exe`, so a game is the desktop's child rather than the server's and survives Naka quitting. Once a turn is tainted, opening anything asks first.
 
+**Clipboard, documents, history.** `server/tools/clipboard.py` reads and writes the clipboard through the Win32 API. `server/tools/documents.py` reads PDF (pypdf), Word, PowerPoint and text a part at a time; without the shell power it only reaches Documents, Downloads, the Desktop, the notes and the workspace, and it finds a file by name in them. `server/tools/history.py` searches `conversation.jsonl` by words or by day. What the clipboard or a document contains taints the turn.
+
+**MCP servers.** `server/mcpclient.py` is a small stdio client for the Model Context Protocol, hand-written for the three messages it needs rather than the official SDK and its dependencies. Servers are configured in `config/mcp.json`, in Claude Desktop's shape; environment values entered in the panel go to Credential Manager instead. A server's tools are registered at runtime as `mcp_<server>_<tool>` under power `mcp.<server>`, so they exist only while it runs. A tool that does not declare `readOnlyHint` asks first, every tool asks once the turn is tainted, and every result is marked untrusted. Servers run in the lifetime job and die with Naka.
+
 **Reminders.** `server/tools/reminders.py` keeps reminders for a time of day in `reminders.json` in the data folder. The same watcher that rings timers rings them, in the panel and as a tray notification, and forwards both to Telegram when it is connected. One that came due while Naka was not running rings when it starts, marked late.
 
 While a chain runs, results older than two steps are shortened so they do not push the persona out of the context window.
@@ -114,7 +118,9 @@ Config files are seeded from the shipped defaults once and never overwritten. Se
 
 ```
 server/        FastAPI app: STT, LLM client, agent, tools, memory, voice, panel API
-  tools/       registry and allowlist, builtin tools, reminders, apps, web, PowerShell
+  tools/       registry and allowlist, builtin tools, reminders, apps, clipboard,
+               documents, history, web, PowerShell
+  mcpclient.py MCP servers: started, listed, called
   connections/ Telegram, Google Calendar, weather, Spotify: opt in, one module each
 tray/          Naka.exe: tray icon, push to talk, panel window, server supervisor
 client/        audio helpers shared with the tray, and a terminal push to talk client

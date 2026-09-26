@@ -22,6 +22,7 @@ const ICONS = [
   'AudioLines',
   'ArrowLeft',
   'Bell',
+  'Blocks',
   'BellRing',
   'Calendar',
   'CloudSun',

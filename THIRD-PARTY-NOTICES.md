@@ -112,6 +112,7 @@ list once said.
 | pydantic_core | 2.46.5 | MIT |
 | pygments | 2.21.0 | BSD-2-Clause |
 | pyparsing | 3.3.2 | MIT |
+| pypdf | 6.19.0 | BSD-3-Clause |
 | python_dateutil | 2.9.0.post0 | BSD License, Apache Software License |
 | python_multipart | 0.0.32 | Apache-2.0 |
 | pytz | 2026.3.post1 | MIT License |

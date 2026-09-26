@@ -16,7 +16,7 @@ Connection tasks (eval/connection_tasks.py) run against fake services, so
 they need no accounts and change nothing real.
 
 Usage:
-    uv run python eval/agent_bench.py LABEL [web|shell|conn|apps] [task-id ...]
+    uv run python eval/agent_bench.py LABEL [web|shell|conn|apps|assist] [task-id ...]
 
 Writes eval/bench/LABEL.json and prints a line per task and a summary.
 eval/bench_report.py compares runs.
@@ -42,12 +42,16 @@ from server.memory import memory  # noqa: E402
 
 import bench_tasks  # noqa: E402
 import app_tasks  # noqa: E402
+import assist_tasks  # noqa: E402
 import connection_tasks  # noqa: E402
 
 SANDBOX = Path(tempfile.gettempdir()) / "naka-bench"
 # Notes for the connection tasks, never the person's own.
 NOTES = Path(tempfile.gettempdir()) / "naka-bench-notes"
-KINDS = ("web", "shell", "conn", "apps")
+# Inside the workspace, where find_files looks too: a document the model
+# goes looking for by hand must be findable, as a real one would be.
+DOCS = SANDBOX / "Documents"
+KINDS = ("web", "shell", "conn", "apps", "assist")
 OUT = ROOT / "eval" / "bench"
 # Shared between checkouts, so a baseline run from a worktree and a run of the
 # current code see the same results for the same query.
@@ -118,6 +122,8 @@ async def run_task(task: dict) -> dict:
     bench_tasks.build(SANDBOX)
     if task["kind"] == "apps":
         app_tasks.setup()
+    if task["kind"] == "assist":
+        assist_tasks.setup(DOCS)
     if task["kind"] == "conn":
         connection_tasks.setup(NOTES)
         if task.get("before"):
@@ -157,7 +163,8 @@ async def run_task(task: dict) -> dict:
 def select(args: list[str]) -> list[dict]:
     bench_tasks.build(SANDBOX)
     tasks = (bench_tasks.WEB + bench_tasks.shell_tasks(SANDBOX)
-             + connection_tasks.tasks() + app_tasks.tasks())
+             + connection_tasks.tasks() + app_tasks.tasks()
+             + assist_tasks.tasks())
     kinds = {a for a in args if a in KINDS}
     ids = {a for a in args if a not in KINDS}
     if kinds:

@@ -15,8 +15,8 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from . import (agent, connections, conversation, events, llm, logprune,
-               logsetup, models, ops, panel, paths, settings, speech, stt,
-               tts, turnlog)
+               logsetup, mcpclient, models, ops, panel, paths, settings,
+               speech, stt, tts, turnlog)
 from .connections import routes as connection_routes
 from .memory import memory
 from .tools import apps, builtin, reminders
@@ -123,6 +123,9 @@ async def lifespan(app: FastAPI):
     # Reading the Start menu and the game libraries takes a second or two;
     # done now, the first "open Fortnite" does not wait for it.
     apps.warm()
+    # MCP servers start in their own threads: npx can take a while on a
+    # first run, and the server must answer before they are ready.
+    mcpclient.start_all()
     connections.telegram().on_message = telegram_turn
     polling = asyncio.create_task(connections.telegram().run())
     log.info("ready on %s:%s", settings.SERVER["host"], settings.SERVER["port"])
@@ -132,6 +135,7 @@ async def lifespan(app: FastAPI):
     pruning.cancel()
     ringing.cancel()
     polling.cancel()
+    await asyncio.to_thread(mcpclient.stop_all)
     await llm.aclose()
     await ops.shutdown()
     models.unload()

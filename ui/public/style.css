@@ -1368,6 +1368,35 @@ dialog.ask p {
   vertical-align: middle;
 }
 
+.conn-logo.mcp {
+  color: var(--accent);
+}
+
+.item.mcp {
+  margin-bottom: 8px;
+}
+
+.mcp-tools {
+  margin: 6px 0 0;
+  padding-left: 16px;
+}
+
+.mcp-tools li + li {
+  margin-top: 5px;
+}
+
+.mcp-tools .tag {
+  margin-left: 6px;
+}
+
+.mcp-add {
+  margin: 4px 0 10px;
+}
+
+.mcp-add textarea {
+  min-height: 60px;
+}
+
 /* Day and time of a reminder, side by side. */
 .row > .control {
   flex: 1;

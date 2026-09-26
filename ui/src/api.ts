@@ -61,7 +61,7 @@ export interface ToolInfo {
   label: string;
   summary: string;
   /** The switch in Settings › Powers this tool also needs, if any. */
-  power: 'web' | 'shell' | `conn.${string}` | null;
+  power: 'web' | 'shell' | `conn.${string}` | `mcp.${string}` | null;
   /** Offered to her right now: allowlisted and, if it has one, power on. */
   enabled: boolean;
   confirms: 'always' | 'changes' | 'never';
@@ -133,6 +133,32 @@ export interface ConnectionInfo {
 export interface ConnectionsState {
   connections: ConnectionInfo[];
   redirect_uri: string;
+}
+
+export interface McpServer {
+  name: string;
+  command: string;
+  args: string[];
+  /** Names only: the values are in Windows Credential Manager. */
+  env_keys: string[];
+  enabled: boolean;
+  confirm: 'writes' | 'always' | 'never';
+  status: 'stopped' | 'starting' | 'running' | 'failed';
+  error: string;
+  tools: { name: string; description: string; asks: boolean }[];
+}
+
+export interface McpState {
+  servers: McpServer[];
+  file: string;
+}
+
+export interface McpServerIn {
+  command: string;
+  args: string[];
+  env: Record<string, string>;
+  confirm: McpServer['confirm'];
+  disabled: boolean;
 }
 
 export interface NoteInfo {
@@ -419,6 +445,29 @@ export class NakaApi {
     return this.request('/connections/telegram/pair', {
       method: 'POST',
       body: JSON.stringify({ chat_id: chatId }),
+    });
+  }
+
+  mcp(): Promise<McpState> {
+    return this.request('/mcp');
+  }
+
+  saveMcp(name: string, server: McpServerIn): Promise<McpState> {
+    return this.request(`/mcp/servers/${encodeURIComponent(name)}`, {
+      method: 'PUT',
+      body: JSON.stringify(server),
+    });
+  }
+
+  restartMcp(name: string): Promise<McpState> {
+    return this.request(`/mcp/servers/${encodeURIComponent(name)}/restart`, {
+      method: 'POST',
+    });
+  }
+
+  deleteMcp(name: string): Promise<McpState> {
+    return this.request(`/mcp/servers/${encodeURIComponent(name)}`, {
+      method: 'DELETE',
     });
   }
 
