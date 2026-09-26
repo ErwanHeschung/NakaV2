@@ -2,14 +2,16 @@
 
 | Run | Web | Shell | Mean time | Tool errors |
 |:-|:-|:-|:-|:-|
+| baseline | 103/110 (94%) | 89.5/106 (84%) | 6.8s | 2 |
+| v1 | 107/110 (97%) | 88/106 (83%) | 5.1s | 3 |
 | v2 | 105/110 (95%) | 96/106 (91%) | 4.5s | 1 |
 | v3-connections | 105/110 (95%) | 94/106 (89%) | 3.2s | 3 |
 
-## v2 to v3-connections
+## baseline to v3-connections
 
-Better on 4, worse on 6.
+Better on 17, worse on 10.
 
-Worse: `web-eldenring`, `sh-names-unique`, `sh-csv-rows`, `sh-reply`, `sh-move-png`, `sh-archive-proj`
+Worse: `web-eldenring`, `sh-names-unique`, `sh-csv-rows`, `sh-letter-words`, `sh-reply`, `sh-dedupe-names`, `sh-copy-folder`, `sh-move-png`, `sh-archive-proj`, `sh-copy-py`
 
 ## Still not right in v3-connections (17)
 
