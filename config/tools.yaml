@@ -141,6 +141,18 @@ tools:
     # Like a timer: what it was for is lost, and nothing brings it back.
     destructive: true
 
+  # --- apps and games: only what Windows and the launchers list ------------
+
+  open_app:
+    enabled: true
+    # Opens only what is installed, by name; asks first once the turn has
+    # been steered from outside. See server/tools/apps.py.
+    destructive: false
+
+  list_apps:
+    enabled: true
+    destructive: false
+
   # --- connections: offered only while switched on and set up in the -----
   # --- panel under Connections --------------------------------------------
 

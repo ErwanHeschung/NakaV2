@@ -32,7 +32,7 @@ import httpx
 from . import llm, settings
 from .memory import _clip
 from . import connections  # noqa: F401  registers their tools
-from .tools import builtin, files, reminders, shell, web  # noqa: F401
+from .tools import apps, builtin, files, reminders, shell, web  # noqa: F401
 from .tools.registry import AGENT, available, call, get
 
 log = logging.getLogger("naka.agent")
@@ -580,7 +580,20 @@ def _max_tokens() -> int | None:
     return settings.LLM.get("tool_max_tokens", 3072)
 
 
+# How a waiting call is described to the model that phrases the question.
+# "open app: fortnite" read to it as something it had no way to do, and it
+# said so while asking permission to do it.
+PLAIN = {
+    "open_app": "start {name} on the user's PC",
+}
+
+
 def _plain_request(name: str, arguments: dict) -> str:
+    if name in PLAIN:
+        try:
+            return PLAIN[name].format(**arguments)
+        except KeyError:
+            pass
     # Clipped: a file's whole content read into a prompt, only to be
     # summarised as "write a file", is slow and invites reading code aloud.
     detail = ", ".join(str(v)[:80] for v in arguments.values())

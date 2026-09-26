@@ -531,6 +531,46 @@ async def connection_checks():
     settings.reload()
 
 
+async def app_checks():
+    """Opening apps, against a fixed index: nothing is really launched."""
+    from server.tools import apps
+
+    launched = []
+    real_launch = apps.launch
+    apps.launch = launched.append
+    apps._index[:] = [
+        apps.App("Fortnite", "com.epicgames.launcher://apps/fn", "epic"),
+        apps.App("Photos", "shell:AppsFolder\\Photos", "start"),
+        apps.App("Microsoft To Do", "shell:AppsFolder\\Todo", "start"),
+    ]
+    apps._built = 1e12
+    try:
+        call("open_app", {"name": "fort night"})
+        check("a misheard name opens the game it meant",
+              [a.name for a in launched] == ["Fortnite"], str(launched))
+        launched.clear()
+        for name in ("C:\\Windows\\System32\\cmd.exe", "cmd /c del x",
+                     "photoshop", "word", "powershell"):
+            result = call("open_app", {"name": name})
+            check(f"only what is installed opens: {name}", not launched, result)
+        check("from the PC, opening an app does not ask",
+              not registry.get("open_app").needs_confirmation(
+                  {"name": "Fortnite"}, tainted=False))
+        check("once the turn is tainted, it asks",
+              registry.get("open_app").needs_confirmation(
+                  {"name": "Fortnite"}, tainted=True))
+        canned(tool_call("open_app", name="Fortnite"))
+        [s async for s in agent.run(USER, tainted=True, origin="telegram")]
+        check("from Telegram, nothing opens before a yes",
+              agent.pending is not None and not launched)
+        await answer("yes")
+        check("and a yes opens it", [a.name for a in launched] == ["Fortnite"])
+    finally:
+        apps.launch = real_launch
+        apps._index.clear()
+        apps._built = 0.0
+
+
 async def main():
     saved = dict(settings.POWERS)
     try:
@@ -538,6 +578,7 @@ async def main():
         await power_switches()
         web_checks()
         await connection_checks()
+        await app_checks()
         if sys.platform == "win32":
             await shell_checks()
         else:

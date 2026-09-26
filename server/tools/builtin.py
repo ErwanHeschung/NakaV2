@@ -42,7 +42,8 @@ def get_time():
 
 @tool(
     description="Report how much GPU memory is free, and how much the models "
-                "are using. Useful before starting a game.",
+                "are using. Only when the user asks about memory or whether "
+                "something will fit; not before opening a game.",
     parameters={},
     label="GPU memory",
     summary="How much graphics memory is free, and how much the models hold.",

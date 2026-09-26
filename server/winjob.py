@@ -29,6 +29,9 @@ if sys.platform == "win32":
 
     _JobObjectExtendedLimitInformation = 9
     _JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x2000
+    # Lets a child created with CREATE_BREAKAWAY_FROM_JOB start outside the
+    # job. Only that child: everything started without the flag stays in.
+    _JOB_OBJECT_LIMIT_BREAKAWAY_OK = 0x0800
     _JOB_OBJECT_LIMIT_JOB_MEMORY = 0x0200
     _PROCESS_SET_QUOTA = 0x0100
     _PROCESS_TERMINATE = 0x0001
@@ -70,12 +73,14 @@ if sys.platform == "win32":
     _k32.AssignProcessToJobObject.argtypes = (wintypes.HANDLE, wintypes.HANDLE)
     _k32.CloseHandle.argtypes = (wintypes.HANDLE,)
 
-    def _create_job(memory_bytes: int = 0):
+    def _create_job(memory_bytes: int = 0, breakaway: bool = False):
         job = _k32.CreateJobObjectW(None, None)
         if not job:
             raise ctypes.WinError(ctypes.get_last_error())
         info = _ExtendedLimits()
         info.BasicLimitInformation.LimitFlags = _JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+        if breakaway:
+            info.BasicLimitInformation.LimitFlags |= _JOB_OBJECT_LIMIT_BREAKAWAY_OK
         if memory_bytes:
             info.BasicLimitInformation.LimitFlags |= _JOB_OBJECT_LIMIT_JOB_MEMORY
             info.JobMemoryLimit = memory_bytes
@@ -99,7 +104,10 @@ def contain(pid: int) -> bool:
         if _job is None:
             # Created once and deliberately never closed: closing it is what
             # kills the children, and that should happen only when we exit.
-            _job = _create_job()
+            # Breakaway is allowed so that an app or game she opens can be
+            # started outside it on purpose (server/tools/apps.py); nothing
+            # leaves without asking to.
+            _job = _create_job(breakaway=True)
         _assign(_job, pid)
         return True
     except OSError as e:

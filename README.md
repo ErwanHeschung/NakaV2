@@ -32,6 +32,7 @@ She is also meant to be someone rather than something: a persona you can edit, a
 - **A voice of her own.** Kokoro speech with a tunable effects chain (pitch, formants, chorus, compression) that gives her a consistent, slightly synthetic character.
 - **Memory.** She keeps a short list of facts about you and a rolling summary of the conversation. You can read and edit both in the panel.
 - **Tools.** Timers that ring, reminders for a time of day that survive a restart, notes in a plain folder on your disk, the clock, GPU status.
+- **Opens your apps and games.** "Open Fortnite", "launch Spotify", "I want to play Apex": anything in the Start menu, your Steam library or your Epic library, found by name even when misheard.
 - **Optional connections.** Telegram, Google Calendar, the weather and Spotify, each off until you switch it on and set it up with your own account.
 - **Optional web access.** Search the web and read pages when she needs something recent. Off until you turn it on.
 - **Optional PowerShell.** She can look around your PC and act on it. Anything that changes something waits for you to say yes out loud.

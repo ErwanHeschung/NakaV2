@@ -19,7 +19,7 @@ from . import (agent, connections, conversation, events, llm, logprune,
                turnlog)
 from .connections import routes as connection_routes
 from .memory import memory
-from .tools import builtin, reminders
+from .tools import apps, builtin, reminders
 from .tools.registry import AGENT, listed
 
 def turn_note(woke: float) -> str:
@@ -120,6 +120,9 @@ async def lifespan(app: FastAPI):
     watcher = asyncio.create_task(ops.idle_watcher())
     pruning = asyncio.create_task(logprune.pruner())
     ringing = asyncio.create_task(timer_watcher())
+    # Reading the Start menu and the game libraries takes a second or two;
+    # done now, the first "open Fortnite" does not wait for it.
+    apps.warm()
     connections.telegram().on_message = telegram_turn
     polling = asyncio.create_task(connections.telegram().run())
     log.info("ready on %s:%s", settings.SERVER["host"], settings.SERVER["port"])

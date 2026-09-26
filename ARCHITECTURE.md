@@ -64,6 +64,8 @@ A single `asyncio.Lock` serialises GPU work in the server. One inference at a ti
 | A yes from Telegram only answers what Telegram asked | `agent.answers_pending` |
 | Moving and deleting events always ask; adding one asks once the turn is tainted, and reading the calendar taints it | `tools.yaml`, `calendar.py` |
 
+**Apps and games.** `server/tools/apps.py` opens what is installed, by name. It never runs a path or a command the model wrote: it picks from an index of the Start menu (`Get-StartApps`), Steam's library manifests and Epic's install manifests, built in the background at startup and rebuilt on a miss. Names are matched loosely, since they come through speech recognition ("fort night", "hollow night"), with English aliases for a French Windows' own apps; a close call between two entries is handed back for her to ask about. Everything starts through `explorer.exe`, so a game is the desktop's child rather than the server's and survives Naka quitting. Once a turn is tainted, opening anything asks first.
+
 **Reminders.** `server/tools/reminders.py` keeps reminders for a time of day in `reminders.json` in the data folder. The same watcher that rings timers rings them, in the panel and as a tray notification, and forwards both to Telegram when it is connected. One that came due while Naka was not running rings when it starts, marked late.
 
 While a chain runs, results older than two steps are shortened so they do not push the persona out of the context window.
@@ -112,7 +114,7 @@ Config files are seeded from the shipped defaults once and never overwritten. Se
 
 ```
 server/        FastAPI app: STT, LLM client, agent, tools, memory, voice, panel API
-  tools/       registry and allowlist, builtin tools, reminders, web, PowerShell
+  tools/       registry and allowlist, builtin tools, reminders, apps, web, PowerShell
   connections/ Telegram, Google Calendar, weather, Spotify: opt in, one module each
 tray/          Naka.exe: tray icon, push to talk, panel window, server supervisor
 client/        audio helpers shared with the tray, and a terminal push to talk client
