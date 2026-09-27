@@ -52,7 +52,7 @@ A single `asyncio.Lock` serialises GPU work in the server. One inference at a ti
 **Powers.** Two groups of tools are also gated by a switch in `settings.toml`, read on every call so the panel can flip them live.
 
 - `server/tools/web.py`: `web_search` (DuckDuckGo with Bing behind it, or Brave with an API key) and `fetch_page` (httpx plus trafilatura for the main text). Any address resolving to loopback, private, link local or reserved ranges is refused, and checked again at every redirect. Results are wrapped as untrusted content.
-- `server/tools/shell.py`: `run_command` runs PowerShell as the user. Whether it asks first is decided per command by PowerShell's own parser: read only means every command anywhere in the input is on an allowlist of commands that only look, with no redirection, method call, assignment or call operator. Anything else, and anything that fails to parse, needs a yes. Once web content has entered a turn, every command in that turn needs one. Each command runs in its own job object with a memory cap and a timeout.
+- `server/tools/shell.py`: `run_command` runs PowerShell as the user. Whether it asks first is decided per command by PowerShell's own parser, which sorts every command anywhere in the input into reading, a change that can be undone (making a folder, copying, moving, renaming, appending, git add and commit), or anything else. Only the last needs a yes: deleting, overwriting, stopping things, running programs or scripts, a redirection, a .NET method not known to be harmless, and anything that fails to parse. Once web content has entered a turn, every command in that turn needs one. Each command runs in its own job object with a memory cap and a timeout.
 
 **Connections.** `server/connections/` has one module per outside service (Telegram, Google Calendar, Open-Meteo weather, Spotify) on a small base class: its settings in `settings.toml` under `[connections.<name>]`, its secrets in Windows Credential Manager through `keyring` (`secrets.py`), a test, and the tools it lends her. Those tools carry `power="conn.<name>"`, so the registry offers them only while the connection is switched on and set up. All outbound traffic goes through `net.request`, which refuses while the switch is off. Google and Spotify sign in with OAuth and PKCE, redirected back to the server itself on `127.0.0.1` (`oauth.py`, `/connections/callback`).
 
@@ -60,9 +60,9 @@ A single `asyncio.Lock` serialises GPU work in the server. One inference at a ti
 |:-|:-|
 | Only the paired Telegram chat is answered; groups and other chats are dropped and audited | `telegram.Telegram.handle` |
 | Pairing needs /start in Telegram and a click in the panel | `telegram.Telegram.pair` |
-| A Telegram turn starts tainted and is never offered PowerShell | `main.telegram_turn`, `agent.Turn.withhold` |
+| A Telegram turn is never offered PowerShell | `main.telegram_turn`, `agent.Turn.withhold` |
 | A yes from Telegram only answers what Telegram asked | `agent.answers_pending` |
-| Moving and deleting events always ask; adding one asks once the turn is tainted, and reading the calendar taints it | `tools.yaml`, `calendar.py` |
+| Deleting an event always asks; adding one asks once the turn is tainted, and reading the calendar taints it | `tools.yaml`, `calendar.py` |
 
 **Apps and games.** `server/tools/apps.py` opens what is installed, by name. It never runs a path or a command the model wrote: it picks from an index of the Start menu (`Get-StartApps`), Steam's library manifests and Epic's install manifests, built in the background at startup and rebuilt on a miss. Names are matched loosely, since they come through speech recognition ("fort night", "hollow night"), with English aliases for a French Windows' own apps; a close call between two entries is handed back for her to ask about. Everything starts through `explorer.exe`, so a game is the desktop's child rather than the server's and survives Naka quitting. Once a turn is tainted, opening anything asks first.
 

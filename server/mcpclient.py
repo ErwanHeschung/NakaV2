@@ -263,7 +263,10 @@ class Server:
         if policy == "always":
             return True
         hints = tool.get("annotations") or {}
-        return not hints.get("readOnlyHint", False)
+        if hints.get("readOnlyHint", False):
+            return False
+        # The spec's default is destructive: a server that says nothing asks.
+        return hints.get("destructiveHint", True)
 
     def _register(self) -> None:
         prefix = f"mcp_{slug(self.name)}_"

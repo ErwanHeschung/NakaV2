@@ -157,14 +157,37 @@ class Spotify(Connection):
             devices[0]
         return chosen["id"]
 
+    def start_here(self) -> str | None:
+        """Open Spotify on this PC and wait for it to appear as a device.
+
+        "Put some music on" with the app closed used to end in "open Spotify
+        first", said back to the person who had just asked for music. The
+        desktop app registers itself as a device a few seconds after it
+        starts.
+        """
+        from ..tools import apps
+
+        app, _ = apps._choose("spotify")
+        if app is None:
+            return None
+        apps.launch(app)
+        deadline = time.monotonic() + 20
+        while time.monotonic() < deadline:
+            time.sleep(1)
+            device = self.device()
+            if device:
+                return device
+        return None
+
     def control(self, method: str, path: str, **kwargs) -> None:
-        """A player command, retried on a device when nothing is active."""
+        """A player command, retried on a device when nothing is active, and
+        with Spotify opened on this PC when it is open nowhere."""
         status, body = self.api(method, path, **kwargs)
         if status == 404:
-            device = self.device()
+            device = self.device() or self.start_here()
             if device is None:
-                raise Failed("Spotify isn't open anywhere. Open it on the PC "
-                             "or the phone first.")
+                raise Failed("Spotify is open on no device, and is not "
+                             "installed on this PC to open it here.")
             params = dict(kwargs.pop("params", {}) or {})
             params["device_id"] = device
             status, body = self.api(method, path, params=params, **kwargs)

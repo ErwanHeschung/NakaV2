@@ -18,10 +18,12 @@
 
 agent:
   # Hard ceiling on tool calls per request. The loop stops here whether or not
-  # the model thinks it is finished.
-  max_steps: 5
-  # Wall-clock ceiling for the whole loop, seconds.
-  timeout: 30
+  # the model thinks it is finished. A request is often a chain (open Spotify,
+  # wait for it, pick something, play it), so five was too few.
+  max_steps: 8
+  # Wall-clock ceiling for the whole loop, seconds. Opening an app and waiting
+  # for it can take twenty on its own.
+  timeout: 60
   # Tools are only offered when the request asks for them (agentic: true).
   default_agentic: false
   # The ceilings while web or shell is switched on. Looking something up and
@@ -115,8 +117,8 @@ tools:
 
   write_file:
     enabled: true
-    # Changes a file, so it always asks.
-    destructive: true
+    # Asks only before replacing a file that exists; see server/tools/files.py.
+    destructive: false
 
   read_file:
     enabled: true
@@ -149,8 +151,6 @@ tools:
 
   write_clipboard:
     enabled: true
-    # Replaces what was copied; asks once the turn has been steered from
-    # outside. See server/tools/clipboard.py.
     destructive: false
 
   search_conversations:
@@ -175,6 +175,12 @@ tools:
     enabled: true
     destructive: false
 
+  close_app:
+    enabled: true
+    # Closes as the window's own button does: the app asks about unsaved
+    # work, so nothing is lost without the person seeing it.
+    destructive: false
+
   # --- connections: offered only while switched on and set up in the -----
   # --- panel under Connections --------------------------------------------
 
@@ -194,7 +200,8 @@ tools:
 
   calendar_move:
     enabled: true
-    destructive: true
+    # Moving can be moved back; deleting cannot, so only that asks.
+    destructive: false
 
   calendar_delete:
     enabled: true

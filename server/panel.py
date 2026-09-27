@@ -362,11 +362,11 @@ FIELDS: list[Field] = [
           "this machine; only the searches and pages go out. Needs her tools "
           "on."),
     Field("settings.powers.shell", "Let her use PowerShell", "bool", "Powers",
-          "Commands on this PC, as you. Ones that only look — listing a "
-          "folder, reading a file, git status — run straight away; anything "
-          "that changes something waits for you to say yes. After she has "
-          "read a web page, every command waits, because a page can be "
-          "written to talk her into things."),
+          "Commands on this PC, as you. Looking, making folders, copying, "
+          "moving and renaming run straight away; deleting, overwriting, "
+          "stopping things or running programs waits for you to say yes. "
+          "After she has read a web page, every command waits, because a "
+          "page can be written to talk her into things."),
     Field("settings.powers.workspace", "Workspace", "text", "Powers",
           "Where commands start unless she is told otherwise. She can still "
           "reach the rest of the disk."),

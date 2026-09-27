@@ -14,6 +14,9 @@ TOOLS = [
                                                       "b": {"type": "number"}},
                      "required": ["a", "b"]},
      "annotations": {"readOnlyHint": True}},
+    {"name": "make_folder", "description": "Makes a folder.",
+     "inputSchema": {"type": "object", "properties": {}},
+     "annotations": {"readOnlyHint": False, "destructiveHint": False}},
     {"name": "delete_everything", "description": "Deletes things.",
      "inputSchema": {"type": "object", "properties": {}}},
 ]
@@ -34,6 +37,8 @@ for line in sys.stdin:
         name, args = message["params"]["name"], message["params"].get("arguments", {})
         if name == "echo":
             result = {"content": [{"type": "text", "text": args["text"]}]}
+        elif name == "make_folder":
+            result = {"content": [{"type": "text", "text": "made"}]}
         elif name == "add":
             result = {"content": [{"type": "text", "text": str(args["a"] + args["b"])}]}
         else:

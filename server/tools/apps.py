@@ -420,3 +420,61 @@ def list_apps(kind: str = "all", contains: str = ""):
     shown = names[:40]
     more = f" and {len(names) - 40} more" if len(names) > 40 else ""
     return f"{len(names)} found: " + ", ".join(shown) + more + "."
+
+
+# Windows with a title, the ones a person could mean by "close X".
+_WINDOWS = ("[Console]::OutputEncoding = [Text.Encoding]::UTF8; "
+            "@(Get-Process | Where-Object { $_.MainWindowHandle -ne 0 } | "
+            "Select-Object Id, ProcessName, MainWindowTitle) | "
+            "ConvertTo-Json -Compress")
+
+
+def open_windows() -> list[dict]:
+    try:
+        found = json.loads(_powershell(_WINDOWS) or "[]")
+    except json.JSONDecodeError:
+        return []
+    return [found] if isinstance(found, dict) else found
+
+
+def matching(name: str, windows: list[dict]) -> list[dict]:
+    """The windows a spoken name means: by the app it names in the index
+    ("Fortnite" is FortniteClient-Win64-Shipping), or by its own words in
+    the process name or the title."""
+    app, _ = _choose(name) if index() else (None, [])
+    wanted = {_compact(name)} | ({_compact(app.name)} if app else set())
+    wanted.discard("")
+    return [w for w in windows
+            if any(key in _compact(w.get("ProcessName") or "")
+                   or key in _compact(w.get("MainWindowTitle") or "")
+                   for key in wanted)]
+
+
+def close(pids: list[int]) -> None:
+    # CloseMainWindow is the window's own close button: an app with unsaved
+    # work asks about it, where Stop-Process would lose it.
+    ids = ",".join(str(int(p)) for p in pids)
+    _powershell(f"foreach ($id in @({ids})) {{ "
+                "try { [void](Get-Process -Id $id).CloseMainWindow() } catch {} }")
+
+
+@tool(
+    description=(
+        "Close an app or game that is open on this PC, by name: 'close "
+        "Fortnite', 'quit Spotify'. It is closed the way its close button "
+        "would, so anything unsaved is asked about by the app itself."),
+    parameters={"name": {"type": "string",
+                         "description": "The app or game, as the user said "
+                                        "it."}},
+    required=["name"],
+    confirm=lambda arguments, tainted: tainted,
+    label="Close an app",
+    summary="Closes an open app or game, as its close button would.",
+)
+def close_app(name: str):
+    targets = matching(name, open_windows())
+    if not targets:
+        return f"Nothing called {name!r} is open."
+    close([t["Id"] for t in targets])
+    names = sorted({t.get("MainWindowTitle") or t["ProcessName"] for t in targets})
+    return "Asked to close: " + "; ".join(names) + "."

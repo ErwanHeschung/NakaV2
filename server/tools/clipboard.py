@@ -6,8 +6,8 @@ third of a second to start.
 
 What is in the clipboard came from anywhere (a web page, a message from a
 stranger), so reading it taints the turn the way reading a page does.
-Writing replaces what the person had copied, so it asks first once the turn
-has been steered from outside.
+Writing replaces what the person had copied, which is not worth a question:
+it never asks.
 """
 
 import ctypes
@@ -127,7 +127,6 @@ def read_clipboard():
     parameters={"text": {"type": "string",
                          "description": "Exactly what to put there."}},
     required=["text"],
-    confirm=lambda arguments, tainted: tainted,
     label="Copy to the clipboard",
     summary="Puts text in your clipboard, ready to paste.",
 )

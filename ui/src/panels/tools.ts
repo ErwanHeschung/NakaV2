@@ -24,7 +24,7 @@ const TOOL_GROUPS: {
 
 const CONFIRM_TAG: Record<ToolInfo['confirms'], string | null> = {
   always: 'asks first',
-  changes: 'asks before changes',
+  changes: 'asks before risky ones',
   never: null,
 };
 

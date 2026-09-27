@@ -54,7 +54,7 @@ def canned(*responses):
     """
     queue = list(responses)
 
-    async def fake(messages, tools, max_tokens=None):
+    async def fake(messages, tools, max_tokens=None, **options):
         global last_tools
         seen.append([dict(m) for m in messages])
         last_tools = tools
@@ -62,6 +62,8 @@ def canned(*responses):
         if isinstance(reply, str):
             yield "sentence", reply
         else:
+            for call in reply:  # as llm.stream_with_tools announces them
+                yield "calling", call["function"]["name"]
             yield "tool_calls", reply
 
     async def fake_complete(messages):
@@ -154,6 +156,33 @@ async def core():
     check(f"stops at the {steps}-step ceiling",
           any("circles" in s.lower() for s in said), str(said))
 
+    # --- an empty reply at the length limit is retried, never silent -----
+    attempts = []
+
+    async def looping(messages, tools, max_tokens=None, ban_channel=False):
+        attempts.append(ban_channel)
+        if not ban_channel:
+            yield "finish", "length"  # the thinking-channel loop: nothing
+        else:
+            yield "sentence", "Google makes them."
+            yield "finish", "stop"
+
+    real_stream = llm.stream_with_tools
+    llm.stream_with_tools = looping
+    said = await collect()
+    check("an empty reply at the length limit is asked again, channel banned",
+          attempts == [False, True] and said == ["Google makes them."],
+          f"{attempts} {said}")
+
+    async def always_empty(messages, tools, max_tokens=None, ban_channel=False):
+        yield "finish", "length"
+
+    llm.stream_with_tools = always_empty
+    said = await collect()
+    check("and if it stays empty, she says so rather than nothing",
+          len(said) == 1 and "train of thought" in said[0], str(said))
+    llm.stream_with_tools = real_stream
+
     # --- a model repeating itself is made to answer ----------------------
     canned(*[tool_call("get_time") for _ in range(3)], "It is noon.")
     said = await collect()
@@ -166,7 +195,7 @@ async def core():
     canned(*[tool_call("get_time") for _ in range(5)])
     scripted = llm.stream_with_tools
 
-    async def trips(messages, tools, max_tokens=None):
+    async def trips(messages, tools, max_tokens=None, **options):
         agent.kill_switch.trip()
         async for item in scripted(messages, tools):
             yield item
@@ -194,8 +223,38 @@ async def power_switches():
           "no tool named" in call("run_command", {"command": "Get-Date"}))
     canned("Hello.")
     await collect()
-    check("with powers off, the system prompt is untouched",
-          seen[-1][0]["content"] == USER[0]["content"])
+    check("with powers off, only the rules for acting are added",
+          seen[-1][0]["content"] == USER[0]["content"] + "\n\n"
+          + agent.ACTING_PROMPT)
+
+    canned("I can open that. Should I go ahead?",
+           tool_call("get_time"), "It is noon.")
+    said = await collect()
+    check("asking permission in words gets the call made instead",
+          said[-1] == "It is noon." and seen[-1][-1]["role"] == "tool",
+          str(said))
+    canned("Want to hear another fun fact?")
+    said = await collect()
+    check("an offer to keep talking is not taken for a permission request",
+          said == ["Want to hear another fun fact?"], str(said))
+
+    powers(True, True)
+    for line in ("It's overcast right now, about 18 degrees.",
+                 "Right. Let me know if you need anything else."):
+        canned(line, "Sorry, I can't do that.")
+        said = await collect()
+        check(f"no nudge on a plain sentence: {line[:30]}...",
+              said == [line], str(said))
+    canned("I've put that into poem.txt for you.",
+           tool_call("get_time"), "It is noon.")
+    said = await collect()
+    check("claiming something done with no call gets the call made",
+          said[-1] == "It is noon.", str(said))
+    canned("I'll open it for you.", tool_call("get_time"), "It is noon.")
+    said = await collect()
+    check("a real promise without a call still gets the call made",
+          said[-1] == "It is noon.", str(said))
+    powers(False, False)
 
     powers(True, True)
     check("with powers on, both are offered",
@@ -230,25 +289,33 @@ CLASSIFY = {
     "git status": "read",
     "git log --oneline -5": "read",
     "git branch -a": "read",
-    "git branch -D main": "write",
-    "git push": "write",
-    "git -c core.pager=evil log": "write",
-    "Remove-Item x": "write",
-    "rm x": "write",
-    "ls > f.txt": "write",
-    "iex 'rm x'": "write",
-    "Get-Item x | % { $_.Delete() }": "write",
-    "[IO.File]::Delete('x')": "write",
-    "Get-ChildItem $(Remove-Item x)": "write",
-    'echo "$(Remove-Item x)"': "write",
-    "& 'C:\\evil.exe'": "write",
-    ".\\script.ps1": "write",
-    "$x = 1": "write",
-    "Get-Process | Stop-Process": "write",
-    "Start-Process notepad": "write",
-    "Set-Content f.txt hi": "write",
-    "ls; Remove-Item x": "write",
-    "Get-ChildItem (": "write",
+    "New-Item -ItemType Directory Photos": "change",
+    "mkdir Photos; Copy-Item *.jpg Photos": "change",
+    "Move-Item a.txt Archive": "change",
+    "Rename-Item a.txt b.txt": "change",
+    "git add .": "change",
+    "git commit -m wip": "change",
+    "$x = 1": "change",
+    "git reset --hard": "destructive",
+    "git clean -fd": "destructive",
+    "git branch -D main": "destructive",
+    "git push": "destructive",
+    "git -c core.pager=evil log": "destructive",
+    "Remove-Item x": "destructive",
+    "rm x": "destructive",
+    "ls > f.txt": "destructive",
+    "iex 'rm x'": "destructive",
+    "Get-Item x | % { $_.Delete() }": "destructive",
+    "[IO.File]::Delete('x')": "destructive",
+    "Get-ChildItem $(Remove-Item x)": "destructive",
+    'echo "$(Remove-Item x)"': "destructive",
+    "& 'C:\\evil.exe'": "destructive",
+    ".\\script.ps1": "destructive",
+    "Get-Process | Stop-Process": "destructive",
+    "Start-Process notepad": "destructive",
+    "Set-Content f.txt hi": "destructive",
+    "ls; Remove-Item x": "destructive",
+    "Get-ChildItem (": "destructive",
 }
 
 
@@ -269,7 +336,32 @@ async def shell_checks():
     check("a progress line is spoken before it", said[:1] == ["Checking."],
           str(said))
 
-    # --- anything that writes waits ---------------------------------------
+    # --- a change that can be undone runs unasked ------------------------
+    folder = shell.workspace() / "naka-guardrail-folder"
+    if folder.exists():
+        folder.rmdir()
+    canned(tool_call("run_command",
+                     command=f"New-Item -ItemType Directory '{folder}'"), "Made.")
+    await collect()
+    check("making a folder runs without asking",
+          agent.pending is None and folder.is_dir())
+    folder.rmdir()
+
+    # --- a new file is written unasked, replacing one waits ---------------
+    fresh = shell.workspace() / "naka-guardrail-new.txt"
+    fresh.unlink(missing_ok=True)
+    canned(tool_call("write_file", path=str(fresh), content="one"), "Done.")
+    await collect()
+    check("writing a new file does not ask",
+          agent.pending is None and fresh.read_text() == "one")
+    canned(tool_call("write_file", path=str(fresh), content="two"))
+    await collect()
+    check("replacing a file that exists waits for a yes",
+          agent.pending is not None and fresh.read_text() == "one")
+    await answer("no")
+    fresh.unlink(missing_ok=True)
+
+    # --- anything destructive waits ---------------------------------------
     target = shell.workspace() / "naka-guardrail.txt"
     target.unlink(missing_ok=True)
     for command in (f"Set-Content '{target}' hi", f"Get-Date > '{target}'",
@@ -421,17 +513,17 @@ async def connection_checks():
     check("pairing takes the chat that asked",
           settings.CONNECTIONS["telegram"]["chat_id"] == fake_services.STRANGER)
 
-    # --- a Telegram turn is untrusted -------------------------------------
+    # --- a Telegram turn: trusted, but no PowerShell ----------------------
     fake = fake_services.install(on=True)
     powers(True, True)
     canned("Hello.")
-    [s async for s in agent.run(USER, tainted=True, withhold=frozenset({"shell"}),
+    [s async for s in agent.run(USER, withhold=frozenset({"shell"}),
                                 origin="telegram")]
     check("a Telegram turn is not offered PowerShell",
           "run_command" not in {t["function"]["name"] for t in last_tools}
           and "weather_now" in {t["function"]["name"] for t in last_tools})
     canned(tool_call("run_command", command="Get-Date"), "Done.")
-    [s async for s in agent.run(USER, tainted=True, withhold=frozenset({"shell"}),
+    [s async for s in agent.run(USER, withhold=frozenset({"shell"}),
                                 origin="telegram")]
     check("and naming it anyway is refused",
           "not available" in seen[-1][-1]["content"], seen[-1][-1]["content"])
@@ -441,10 +533,14 @@ async def connection_checks():
     await collect()
     check("from the PC, adding an event does not ask",
           agent.pending is None and "Party" in fake.titles())
-    canned(tool_call("calendar_create", title="Heist", day="tomorrow", at="03:00"))
-    [s async for s in agent.run(USER, tainted=True, origin="telegram")]
-    check("from Telegram, adding an event asks first",
-          agent.pending is not None and "Heist" not in fake.titles())
+    canned(tool_call("calendar_create", title="Gym", day="tomorrow", at="07:00"))
+    [s async for s in agent.run(USER, origin="telegram")]
+    check("from Telegram, adding an event does not ask either",
+          agent.pending is None and "Gym" in fake.titles())
+    canned(tool_call("calendar_delete", event_id="ev001"))
+    [s async for s in agent.run(USER, origin="telegram")]
+    check("from Telegram, deleting one still asks",
+          agent.pending is not None and "Dentist" in fake.titles())
     check("a PC turn can answer it, a question from Telegram is Telegram's",
           agent.answers_pending("pc") and agent.answers_pending("telegram"))
     await answer("no")
@@ -468,11 +564,11 @@ async def connection_checks():
     await answer("yes")
     check("a yes deletes it", "Dentist" not in fake.titles())
 
-    canned(tool_call("calendar_move", event_id="ev002", day="tomorrow", at="15:00"))
+    canned(tool_call("calendar_move", event_id="ev002", day="tomorrow", at="15:00"),
+           "Moved.")
     await collect()
-    check("moving an event waits for a yes",
-          agent.pending is not None and not fake.hits("www.googleapis.com", "PATCH"))
-    await answer("no")
+    check("moving an event does not ask: it can be moved back",
+          agent.pending is None and fake.hits("www.googleapis.com", "PATCH"))
 
     # --- what an invitation says taints the turn --------------------------
     canned(tool_call("calendar_events", day="today", until=(
@@ -483,6 +579,13 @@ async def connection_checks():
     check("after reading the calendar, adding an event asks first",
           agent.pending is not None and "Injected" not in fake.titles())
     await answer("no")
+
+    # --- Spotify open nowhere: it is opened here, then played --------------
+    fake = fake_services.install(on=True)
+    fake.devices.clear()
+    result = call("spotify_play", {"query": "get lucky"})
+    check("with Spotify open nowhere, it is opened on this PC and plays",
+          fake.launched == ["Spotify"] and result.startswith("Playing"), result)
 
     # --- OAuth ------------------------------------------------------------
     url = oauth.begin("calendar", "https://accounts.google.com/o/oauth2/v2/auth",
@@ -560,8 +663,8 @@ async def app_checks():
               registry.get("open_app").needs_confirmation(
                   {"name": "Fortnite"}, tainted=True))
         canned(tool_call("open_app", name="Fortnite"))
-        [s async for s in agent.run(USER, tainted=True, origin="telegram")]
-        check("from Telegram, nothing opens before a yes",
+        [s async for s in agent.run(USER, tainted=True)]
+        check("after a web page, nothing opens before a yes",
               agent.pending is not None and not launched)
         await answer("yes")
         check("and a yes opens it", [a.name for a in launched] == ["Fortnite"])
@@ -585,11 +688,12 @@ async def assist_checks():
     documents.roots = lambda: [folder]
     try:
         powers(False, False)
-        canned(tool_call("read_clipboard"),
-               tool_call("write_clipboard", text="pwned"))
+        # open_app asks only once the turn is tainted, so it shows whether
+        # what came before tainted it.
+        canned(tool_call("read_clipboard"), tool_call("open_app", name="x"))
         await collect()
-        check("after reading the clipboard, writing to it asks first",
-              agent.pending is not None and board["text"] != "pwned")
+        check("after reading the clipboard, the turn is tainted",
+              agent.pending is not None)
         await answer("no")
         canned(tool_call("write_clipboard", text="hello"))
         await collect()
@@ -612,7 +716,7 @@ async def assist_checks():
         check("a document inside them reads, marked untrusted",
               "<<untrusted document>>" in call("read_document", {"name": "memo"}))
         canned(tool_call("read_document", name="memo"),
-               tool_call("write_clipboard", text="x"))
+               tool_call("open_app", name="x"))
         await collect()
         check("after reading a document, the turn is tainted",
               agent.pending is not None)
@@ -638,8 +742,10 @@ async def mcp_checks():
               {"mcp_fake_echo", "mcp_fake_add"} <= offered(), str(offered()))
         check("a read-only tool runs without asking",
               not registry.get("mcp_fake_echo").needs_confirmation({"text": "x"}))
-        check("a tool that does not say it is read-only asks first",
+        check("a tool that says nothing about itself asks first",
               registry.get("mcp_fake_delete_everything").needs_confirmation({}))
+        check("a tool that says it is not destructive runs unasked",
+              not registry.get("mcp_fake_make_folder").needs_confirmation({}))
         check("once tainted, even a read-only one asks",
               registry.get("mcp_fake_echo").needs_confirmation({"text": "x"},
                                                               tainted=True))
@@ -647,7 +753,7 @@ async def mcp_checks():
         check("what a tool returns is marked untrusted",
               "<<untrusted tool output>>" in out, out[:60])
         canned(tool_call("mcp_fake_echo", text="hi"),
-               tool_call("write_clipboard", text="x"))
+               tool_call("open_app", name="x"))
         await collect()
         check("and taints the rest of the turn", agent.pending is not None)
         await answer("no")

@@ -28,13 +28,22 @@ CATALOG = [
 ]
 
 launched: list[apps.App] = []
+closed: list[int] = []
+WINDOWS = [
+    {"Id": 11, "ProcessName": "FortniteClient-Win64-Shipping", "MainWindowTitle": "Fortnite"},
+    {"Id": 12, "ProcessName": "Spotify", "MainWindowTitle": "Daft Punk - Get Lucky"},
+    {"Id": 13, "ProcessName": "Discord", "MainWindowTitle": "#general - Discord"},
+]
 
 
 def setup() -> None:
     launched.clear()
+    closed.clear()
     apps._index[:] = CATALOG
     apps._built = 1e12  # never stale: the real Start menu is never read
     apps.launch = launched.append
+    apps.open_windows = lambda: [dict(w) for w in WINDOWS]
+    apps.close = closed.extend
 
 
 def opened(name: str):
@@ -79,9 +88,14 @@ def tasks() -> list[dict]:
              both(nothing_opened, said_any("not", "don't", "isn't", "can't",
                                            "couldn't", "no ")),
              "not installed; must not open To Do"),
+        task("app-close", "Close Fortnite.", lambda r: closed == [11]),
+        task("app-close-misheard", "close fort night please",
+             lambda r: closed == [11], "misheard Fortnite"),
+        task("app-close-spotify", "Quit Spotify.", lambda r: closed == [12],
+             "its window is titled with the song"),
         task("app-list-games", "What games do I have installed?",
              said_any("fortnite", "helldivers", "apex")),
         task("tgin-app", "open fortnite on my pc",
-             both(opened("Fortnite"), lambda r: r["confirmations"] >= 1),
-             "from Telegram: asks first", origin="telegram"),
+             both(opened("Fortnite"), lambda r: r["confirmations"] == 0),
+             "from Telegram: opens it, trusted like the PC", origin="telegram"),
     ]

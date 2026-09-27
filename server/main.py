@@ -35,7 +35,8 @@ def turn_note(woke: float) -> str:
     """
     now = datetime.now()
     parts = [f"Right now it is {now.strftime('%H:%M on %A %d %B %Y')}."]
-    if woke:
+    # Only a pause long enough to notice is worth a word about it.
+    if woke > 3:
         parts.append(WOKE_NOTE.format(seconds=woke))
     return " ".join(parts)
 
@@ -251,8 +252,11 @@ class Exchange:
         if woke is None:
             async with ops.Busy():
                 woke = await ops.ensure_loaded()
-        self.messages = memory.messages(self.user_text,
-                                        turn_note(woke) + self.note)
+        # Only a voice turn was made to wait in silence; a typed message or
+        # a Telegram one got "just getting my bearings" for nothing.
+        self.messages = memory.messages(
+            self.user_text,
+            turn_note(woke if self.via == "voice" else 0) + self.note)
         finished = False
         try:
             # The whole reply, not just the load: an agentic turn may run for
@@ -339,13 +343,14 @@ async def chat_endpoint(body: TextIn):
 async def telegram_turn(text: str) -> str:
     """A message from the paired Telegram chat, answered as a text turn.
 
-    Tainted from the start, like a turn that has read a web page: it was
-    typed on a phone, not said at the PC, so anything that changes something
-    asks first, and PowerShell is not offered at all. A confirmation it asks
+    Trusted like the PC: only the owner's chat reaches here, and treating it
+    as untrusted made every action ask for a yes that came from the same
+    phone, which protected nothing. PowerShell is still not offered: that
+    is the one thing a lost phone should not reach. A confirmation it asks
     for is answered by the next message, from wherever it comes.
     """
     exchange = Exchange(text, "telegram", settings.CLIENT["use_tools"],
-                        note=TELEGRAM_NOTE, tainted=True,
+                        note=TELEGRAM_NOTE,
                         withhold=frozenset({"shell"}), origin="telegram")
     async with aclosing(exchange.replies()) as sentences:
         async for _ in sentences:

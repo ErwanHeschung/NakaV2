@@ -55,7 +55,7 @@ script: list = []
 agent_calls: list[dict] = []
 
 
-async def fake_stream(messages, tools, max_tokens=None):
+async def fake_stream(messages, tools, max_tokens=None, **options):
     reply = script.pop(0) if script else ["Fine."]
     for part in reply:
         if isinstance(part, Exception):
@@ -138,14 +138,30 @@ def run() -> None:
           and {"stt", "first_sound", "total"} <= set(logged["timings_ms"]),
           str(logged.get("timings_ms")))
 
+    heard_notes = []
+    real_messages = memory.messages
+
+    def spy_messages(text, note=None):
+        heard_notes.append(note or "")
+        return real_messages(text, note)
+
+    memory.messages = spy_messages
+    main.ops.ensure_loaded = lambda: asyncio.sleep(0, result=12.0)
+    script[:] = [["Hi."]]
+    client.post("/chat", json={"text": "typed after a wake", "agentic": True})
+    check("a typed turn after a wake gets no remark about waking",
+          "loaded back" not in heard_notes[-1], heard_notes[-1][:80])
+    main.ops.ensure_loaded = awake
+    memory.messages = real_messages
+
     agent_calls.clear()
     script[:] = [["Sent from ", "the phone."]]
     reply = asyncio.run(main.telegram_turn("hi from telegram"))
     check("a Telegram message is answered with the whole reply",
           reply == "Sent from the phone.", reply)
     check("and recorded as telegram", last()["via"] == "telegram")
-    check("it runs tainted, without PowerShell, from telegram",
-          agent_calls and agent_calls[-1].get("tainted") is True
+    check("it runs trusted but without PowerShell, from telegram",
+          agent_calls and not agent_calls[-1].get("tainted")
           and "shell" in agent_calls[-1].get("withhold", ())
           and agent_calls[-1].get("origin") == "telegram", str(agent_calls))
 

@@ -51,6 +51,11 @@ def setup(folder: Path) -> None:
     (folder / "packing-list.txt").write_text(
         "Passport\nCharger\nHiking boots\nSunscreen\n", encoding="utf-8")
     documents.roots = lambda: [folder]
+    # A file whose name is not what was said, one level down, for "find the
+    # credit song": the first search for the exact phrase finds nothing.
+    music = folder.parent / "Music" / "Soundtracks"
+    music.mkdir(parents=True, exist_ok=True)
+    (music / "Credits_Song_final.mp3").write_bytes(b"ID3")
 
 
 def clip_has(*words):
@@ -90,6 +95,12 @@ def tasks() -> list[dict]:
         task("doc-missing", "Summarise my tax return PDF.",
              said_any("find", "couldn't", "can't", "no ", "not "),
              "no such document: says so"),
+        task("find-credit-song", "Can you find the credit song on my computer?",
+             said_any("credits"), "Music/Soundtracks/Credits_Song_final.mp3"),
+        task("make-page", "Make me an HTML page with a big red button, in my workspace.",
+             lambda r: any(c["name"] == "write_file" and not c["result"].startswith("Error")
+                           for c in r["calls"]),
+             "a file written, not a question about writing it"),
         task("hist-game", "What was that co-op game you recommended last week?",
              said_any("deep rock"), "Deep Rock Galactic"),
         task("hist-gift", "What was my gift idea for my sister again?",

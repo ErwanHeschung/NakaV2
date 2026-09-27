@@ -98,7 +98,7 @@ async def play(text: str, record: dict, origin: str = "pc") -> list[str]:
         # As server/main.py plays a message from the phone.
         from server.main import TELEGRAM_NOTE
         note += TELEGRAM_NOTE
-        run = agent.run(memory.messages(text, note), actions, tainted=True,
+        run = agent.run(memory.messages(text, note), actions,
                         withhold=frozenset({"shell"}), origin="telegram")
     else:
         run = agent.run(memory.messages(text, note), actions)
@@ -179,8 +179,18 @@ async def main() -> None:
     tasks = select(rest)
     settings.POWERS.update(web=True, shell=True, workspace=str(SANDBOX),
                            brave_api_key="")
-    from server.tools import builtin, registry
+    from server.tools import apps, builtin, clipboard, registry
     registry.NOTES_DIR = builtin.NOTES_DIR = NOTES
+    # Nothing here may reach the person's own things: now that opening,
+    # closing and copying run without asking, a web or shell task that
+    # decided to use them would do it for real. The connection tasks switch
+    # fake services on for themselves.
+    settings.CONNECTIONS.clear()
+    apps.launch = lambda app: None
+    apps.close = lambda pids: None
+    apps.open_windows = lambda: []
+    clipboard.read = lambda: ""
+    clipboard.write = lambda text: None
     OUT.mkdir(exist_ok=True)
     SEARCH_CACHE.parent.mkdir(parents=True, exist_ok=True)
     cache_searches()

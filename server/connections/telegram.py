@@ -10,11 +10,9 @@ message from any other chat is dropped unread (and audited). Pairing is two
 steps on purpose: /start in Telegram proposes a chat, and only a click in the
 panel, on the PC, accepts it.
 
-What arrives is still treated as untrusted. Owning the bot's chat means
-owning the phone it is on, which is a weaker thing than sitting at the PC:
-a text turn from Telegram is tainted like one that read a web page, so
-anything that changes something asks first, and PowerShell is not offered
-to it at all.
+What arrives is trusted like the PC, since only the owner's chat is heard,
+except that PowerShell is not offered to it: that is the one thing a lost
+phone should not reach.
 """
 
 import asyncio

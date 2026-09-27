@@ -21,7 +21,7 @@ import httpx
 from server import settings
 from server.connections import calendar as calendar_module
 from server.connections import net, secrets, telegram as telegram_module
-from server.tools import reminders
+from server.tools import apps, reminders
 
 TOKEN = "123456:TESTTOKEN"
 OWNER = 4242
@@ -252,6 +252,18 @@ def install(on: bool = True, paired: bool = True) -> Services:
     """Fake every service, and switch every connection on and set up."""
     services = Services()
     net.use(httpx.MockTransport(services.handle))
+    # Spotify opens the app on this PC when no device is playing: here that
+    # makes the fake device appear, and launches nothing real.
+    services.launched = []
+
+    def launch(app) -> None:
+        services.launched.append(app.name)
+        services.devices[:] = [{"id": "pc", "name": "DESKTOP",
+                                "type": "Computer", "is_active": False}]
+
+    apps.launch = launch
+    apps._index[:] = [apps.App("Spotify", "shell:AppsFolder\\Spotify", "start")]
+    apps._built = 1e12
     vault = secrets.Memory()
     secrets.use(vault)
     scratch = Path(tempfile.mkdtemp(prefix="naka-fake-"))

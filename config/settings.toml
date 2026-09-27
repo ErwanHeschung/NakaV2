@@ -33,10 +33,11 @@ use_tools = true
 # The web: searching, and reading the pages it finds. The models themselves
 # never leave the machine; this only lets her look something up.
 web = false
-# A PowerShell prompt, run as you. Commands that only read — listing, reading
-# a file, git status — run straight away. Anything else waits for you to say
-# yes out loud, and so does every command once web content has entered the
-# turn, since a page can be written to talk her into things.
+# A PowerShell prompt, run as you. Looking, making folders, copying, moving
+# and renaming run straight away. Deleting, overwriting, stopping things or
+# running programs waits for you to say yes out loud, and so does every
+# command once web content has entered the turn, since a page can be written
+# to talk her into things.
 shell = false
 # A Brave Search API key (free tier: 2000 queries a month). Empty uses
 # DuckDuckGo, which needs no account but is less dependable.

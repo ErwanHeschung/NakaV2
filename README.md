@@ -39,7 +39,7 @@ She is also meant to be someone rather than something: a persona you can edit, a
 - **Opens your apps and games.** "Open Fortnite", "launch Spotify", "I want to play Apex": anything in the Start menu, your Steam library or your Epic library, found by name even when misheard.
 - **Optional connections.** Telegram, Google Calendar, the weather and Spotify, each off until you switch it on and set it up with your own account.
 - **Optional web access.** Search the web and read pages when she needs something recent. Off until you turn it on.
-- **Optional PowerShell.** She can look around your PC and act on it. Anything that changes something waits for you to say yes out loud.
+- **Optional PowerShell.** She can look around your PC and act on it. Anything that deletes, overwrites or runs a program waits for you to say yes out loud; the rest she just does.
 - **Plays well with games.** The models leave the GPU after a minute of silence and come back when you press the talk key.
 - **A tray app, not a service.** One icon in the notification area and a control panel in its own window. Quit means quit, and nothing is left holding your GPU.
 
@@ -85,7 +85,7 @@ Download the latest installer from the [GitHub Releases page](https://github.com
 | Power | What she can do | What protects you |
 |:-|:-|:-|
 | Web | Search, then read the pages she finds | Pages on your PC or local network are refused. Page content is treated as untrusted. |
-| PowerShell | Run commands as you, starting in `Documents\Naka Workspace` | Only commands that just look run on their own. Everything else is read out and waits for your yes. After she reads a web page, every command waits. Each command has a time and memory limit, and a stop request ends it along with everything it started. |
+| PowerShell | Run commands as you, starting in `Documents\Naka Workspace` | Looking, making folders, copying, moving and renaming run on their own. Deleting, overwriting, stopping things or running programs is read out and waits for your yes. After she reads a web page, every command waits. Each command has a time and memory limit, and a stop request ends it along with everything it started. |
 
 Every tool call, whether it ran, was refused or was declined, is written to an audit log.
 
@@ -98,7 +98,7 @@ Every tool call, whether it ran, was refused or was declined, is written to an a
 | Weather | Current conditions, today, tomorrow and the week | Nothing but a town name. Data from [Open-Meteo](https://open-meteo.com). |
 | Spotify | Play a song, album, playlist or artist by name, pause, resume, skip, queue, say what is playing | Spotify Premium and your own app on the [developer dashboard](https://developer.spotify.com/dashboard). |
 
-Only your own Telegram chat is answered; messages from anyone else are dropped unread. A message from Telegram is treated like a web page: anything that changes something asks first, a yes typed there cannot approve a question asked at the PC, and PowerShell is never offered to it. Moving or deleting a calendar event always asks first. Tokens and client secrets go to Windows Credential Manager, never into `settings.toml`.
+Only your own Telegram chat is answered; messages from anyone else are dropped unread. A message from Telegram is trusted like the PC, except that PowerShell is never offered to it, and a yes typed there cannot approve a question asked at the PC. Deleting a calendar event always asks first. Tokens and client secrets go to Windows Credential Manager, never into `settings.toml`.
 
 ## Privacy
 
