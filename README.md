@@ -30,10 +30,16 @@ She is also meant to be someone rather than something: a persona you can edit, a
 - **Push to talk from anywhere.** Hold right Ctrl (or any key you choose) in a game, an editor or on the desktop. The key is global.
 - **Fast replies.** She starts speaking as soon as the first sentence is ready, typically 0.5 to 0.8 seconds after you stop talking.
 - **A voice of her own.** Kokoro speech with a tunable effects chain (pitch, formants, chorus, compression) that gives her a consistent, slightly synthetic character.
+- **Readable replies.** The chat renders her Markdown: lists, tables, links, and code blocks with syntax colours and a copy button. The voice skips what should not be read aloud (code, links, tables, full paths, hashes) and says the code is in the chat instead.
 - **Memory.** She keeps a short list of facts about you and a rolling summary of the conversation. You can read and edit both in the panel.
-- **Tools.** Timers that ring, notes in a plain folder on your disk, the clock, GPU status.
+- **Tools.** Timers that ring, reminders for a time of day that survive a restart, notes in a plain folder on your disk, the clock, GPU status.
+- **Your clipboard and your documents.** "Summarise what I copied", "translate my clipboard and put it back", "how much is the rent in my lease?": PDF, Word, PowerPoint and text, found by name in your document folders.
+- **Remembers every conversation.** "What was that game you recommended last week?" searches everything you have said to each other, not only what she holds in mind.
+- **MCP servers.** Plug in other people's tools through the Model Context Protocol: paste a server's configuration from its instructions and she can use it, with the same guardrails as her own tools.
+- **Opens your apps and games.** "Open Fortnite", "launch Spotify", "I want to play Apex": anything in the Start menu, your Steam library or your Epic library, found by name even when misheard.
+- **Optional connections.** Telegram, Google Calendar, the weather and Spotify, each off until you switch it on and set it up with your own account.
 - **Optional web access.** Search the web and read pages when she needs something recent. Off until you turn it on.
-- **Optional PowerShell.** She can look around your PC and act on it. Anything that changes something waits for you to say yes out loud.
+- **Optional PowerShell.** She can look around your PC and act on it. Anything that deletes, overwrites or runs a program waits for you to say yes out loud; the rest she just does.
 - **Plays well with games.** The models leave the GPU after a minute of silence and come back when you press the talk key.
 - **A tray app, not a service.** One icon in the notification area and a control panel in its own window. Quit means quit, and nothing is left holding your GPU.
 
@@ -67,7 +73,8 @@ Download the latest installer from the [GitHub Releases page](https://github.com
 **The panel.** Choose *Open Naka* in the tray menu. From there you can:
 
 - read and edit what she remembers about you,
-- browse and edit your notes and timers,
+- browse and edit your notes, timers and reminders,
+- connect Telegram, Google Calendar, the weather and Spotify,
 - see which tools she has, and switch web and PowerShell on or off,
 - change her name, voice, model and push to talk key in Settings.
 
@@ -78,15 +85,27 @@ Download the latest installer from the [GitHub Releases page](https://github.com
 | Power | What she can do | What protects you |
 |:-|:-|:-|
 | Web | Search, then read the pages she finds | Pages on your PC or local network are refused. Page content is treated as untrusted. |
-| PowerShell | Run commands as you, starting in `Documents\Naka Workspace` | Only commands that just look run on their own. Everything else is read out and waits for your yes. After she reads a web page, every command waits. Each command has a time and memory limit, and a stop request ends it along with everything it started. |
+| PowerShell | Run commands as you, starting in `Documents\Naka Workspace` | Looking, making folders, copying, moving and renaming run on their own. Deleting, overwriting, stopping things or running programs is read out and waits for your yes. After she reads a web page, every command waits. Each command has a time and memory limit, and a stop request ends it along with everything it started. |
 
 Every tool call, whether it ran, was refused or was declined, is written to an audit log.
+
+**Connections.** Open *Connections* in the panel. Each card has a switch, the few fields it needs, a *Save and check* button and a short setup guide with links.
+
+| Connection | What she can do | What you need |
+|:-|:-|:-|
+| Telegram | Answer your messages from your phone, send you reminders, timers and notes | A bot of your own from [@BotFather](https://t.me/BotFather). Send it /start, then confirm your chat in the panel. |
+| Google Calendar | Read your day, add events, move or delete them | Your own Google Cloud project with the Calendar API and a Desktop OAuth client. Publish the consent screen so Google does not sign you out every 7 days. |
+| Weather | Current conditions, today, tomorrow and the week | Nothing but a town name. Data from [Open-Meteo](https://open-meteo.com). |
+| Spotify | Play a song, album, playlist or artist by name, pause, resume, skip, queue, say what is playing | Spotify Premium and your own app on the [developer dashboard](https://developer.spotify.com/dashboard). |
+
+Only your own Telegram chat is answered; messages from anyone else are dropped unread. A message from Telegram is trusted like the PC, except that PowerShell is never offered to it, and a yes typed there cannot approve a question asked at the PC. Deleting a calendar event always asks first. Tokens and client secrets go to Windows Credential Manager, never into `settings.toml`.
 
 ## Privacy
 
 - **The models never leave your PC.** Speech recognition (Whisper), the language model (llama.cpp) and speech synthesis (Kokoro) all run locally.
 - **Nothing goes out by default.** The only network traffic is setup downloading its files. At runtime the models are opened in offline mode.
 - **The web is opt in.** With web access on, her searches and the pages she reads go out. Your voice and your conversation do not.
+- **Connections are opt in, one by one.** Nothing is sent to Telegram, Google, Open-Meteo or Spotify while its switch is off. With Telegram on, the messages you exchange with her there pass through Telegram.
 - **Your data is plain files** in `%LOCALAPPDATA%\Naka`: settings, facts, logs. Notes go to `Documents\Naka Notes`. Uninstalling asks before it removes the data folder, and never touches your notes.
 
 ## Make her yours
@@ -112,7 +131,7 @@ Measured on an RTX 5070 Ti with Gemma 4 12B and Kokoro, from the end of speech t
   <img src="eval/charts/e2e-latency-light.png" alt="Time to first sound. With Kokoro: 216 ms of speech recognition, 192 ms to the first sentence and 66 ms of synthesis, 474 ms in total against a 1300 ms budget. Chatterbox, the engine it replaced, needed 1662 ms." width="720">
 </picture>
 
-About 0.5 seconds on the server, and 0.5 to 0.8 seconds heard from the tray app. Full benchmarks are in [eval/RESULTS.md](eval/RESULTS.md).
+About 0.5 seconds on the server, and 0.5 to 0.8 seconds heard from the tray app. Over a real conversation, where the prompt carries her memory and every tool, the median time to first sound is about 0.7 seconds and the slow turns stay under 0.9 seconds (`eval/pipeline_bench.py`). Full benchmarks are in [eval/RESULTS.md](eval/RESULTS.md).
 
 ## Building from source
 

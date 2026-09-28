@@ -20,9 +20,9 @@ import tomlkit
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from . import autostart, events, paths, settings
+from . import autostart, connections, events, paths, settings
 from .memory import memory
-from .tools import builtin
+from .tools import builtin, reminders
 from .tools.builtin import validate_fact
 from .tools.registry import FACTS
 
@@ -264,6 +264,45 @@ async def timer_cancel(label: str):
     return {"timers": builtin.live_timers(), "now": time.time()}
 
 
+# --------------------------------------------------------------- reminders
+
+
+class ReminderIn(BaseModel):
+    text: str
+    at: str = ""
+    day: str = ""
+    in_minutes: int | None = None
+
+
+def _reminders_view() -> dict:
+    return {"reminders": [reminders.view(r) for r in reminders.pending()],
+            "now": time.time()}
+
+
+@router.get("/reminders")
+async def reminders_list():
+    return _reminders_view()
+
+
+@router.post("/reminders")
+async def reminder_create(body: ReminderIn):
+    try:
+        reminders.add(body.text, reminders.due_at(body.day, body.at,
+                                                  body.in_minutes))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    events.publish("timers")
+    return _reminders_view()
+
+
+@router.delete("/reminders/{ident}")
+async def reminder_cancel(ident: str):
+    if reminders.drop(ident) is None:
+        raise HTTPException(status_code=404, detail=f"no reminder {ident!r}")
+    events.publish("timers")
+    return _reminders_view()
+
+
 # ---------------------------------------------------------------- settings
 
 
@@ -323,11 +362,11 @@ FIELDS: list[Field] = [
           "this machine; only the searches and pages go out. Needs her tools "
           "on."),
     Field("settings.powers.shell", "Let her use PowerShell", "bool", "Powers",
-          "Commands on this PC, as you. Ones that only look — listing a "
-          "folder, reading a file, git status — run straight away; anything "
-          "that changes something waits for you to say yes. After she has "
-          "read a web page, every command waits, because a page can be "
-          "written to talk her into things."),
+          "Commands on this PC, as you. Looking, making folders, copying, "
+          "moving and renaming run straight away; deleting, overwriting, "
+          "stopping things or running programs waits for you to say yes. "
+          "After she has read a web page, every command waits, because a "
+          "page can be written to talk her into things."),
     Field("settings.powers.workspace", "Workspace", "text", "Powers",
           "Where commands start unless she is told otherwise. She can still "
           "reach the rest of the disk."),
@@ -376,6 +415,12 @@ FIELDS: list[Field] = [
           "the web or PowerShell on, 16384 leaves room to read a few pages. "
           "More costs VRAM.", applies="models",
           minimum=2048, maximum=32768, step=1024),
+    Field("settings.llm.swa_full", "Faster follow-up replies", "bool",
+          "Language model",
+          "Keeps the whole conversation in the model's cache, so a reply "
+          "starts about 170ms sooner in median and 190ms sooner at the slow "
+          "end. Costs about 2 GB more graphics memory while the model is "
+          "loaded.", applies="models"),
     Field("settings.llm.url", "Server", "text", "Language model",
           "Where llama.cpp is listening."),
     Field("settings.llm.temperature", "Temperature", "float", "Language model",
@@ -415,7 +460,21 @@ FIELDS: list[Field] = [
           minimum=0, maximum=365),
 ]
 
-BY_KEY = {f.key: f for f in FIELDS}
+def _connection_fields() -> list[Field]:
+    """Each connection's switch and settings. Accepted by PATCH /settings but
+    kept out of the Settings drawer: they are shown on their own cards."""
+    out = []
+    for c in connections.ALL.values():
+        out.append(Field(f"settings.connections.{c.name}.enabled", c.label,
+                         "bool", "Connections"))
+        for s in c.settings:
+            out.append(Field(f"settings.connections.{c.name}.{s.key}",
+                             s.label, s.kind, "Connections", s.help,
+                             options=list(s.options)))
+    return out
+
+
+BY_KEY = {f.key: f for f in FIELDS + _connection_fields()}
 
 _FILES = {"settings": settings.SETTINGS_FILE, "voice": settings.VOICE_FILE}
 
@@ -557,6 +616,8 @@ async def settings_write(body: SettingsIn):
     # shows up once it is rebuilt.
     memory.reload()
     events.publish("settings")
+    if any(k.startswith("settings.connections.") for k in body.changes):
+        events.publish("connections")
 
     return {
         "saved": sorted(body.changes),

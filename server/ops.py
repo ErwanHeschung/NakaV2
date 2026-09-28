@@ -16,6 +16,7 @@ we started, whose exit we see the moment it happens and whose output we keep.
 """
 
 import asyncio
+import ctypes
 import logging
 import os
 import subprocess
@@ -41,8 +42,47 @@ def _vram_mb() -> int:
     return _vram()[0]
 
 
+class _NvmlMemory(ctypes.Structure):
+    # nvmlMemory_v2_t: v2 reports the driver's reservation apart, so "used"
+    # matches what nvidia-smi shows rather than being ~300 MiB higher.
+    _fields_ = [("version", ctypes.c_uint), ("total", ctypes.c_ulonglong),
+                ("reserved", ctypes.c_ulonglong), ("free", ctypes.c_ulonglong),
+                ("used", ctypes.c_ulonglong)]
+
+
+_nvml_device = None
+
+
+def _nvml() -> tuple[int, int] | None:
+    """(used, total) in MiB straight from the driver's NVML, or None.
+
+    The panel asks for this every two seconds. nvidia-smi is a process
+    started each time, 46 ms apiece measured; NVML is a function call in the
+    driver's own DLL, 1.5 microseconds.
+    """
+    global _nvml_device
+    if sys.platform != "win32":
+        return None
+    try:
+        if _nvml_device is None:
+            library = ctypes.WinDLL("nvml.dll")
+            if library.nvmlInit_v2() != 0:
+                return None
+            handle = ctypes.c_void_p()
+            if library.nvmlDeviceGetHandleByIndex_v2(0, ctypes.byref(handle)):
+                return None
+            _nvml_device = (library, handle)
+        library, handle = _nvml_device
+        memory = _NvmlMemory(version=ctypes.sizeof(_NvmlMemory) | (2 << 24))
+        if library.nvmlDeviceGetMemoryInfo_v2(handle, ctypes.byref(memory)):
+            return None
+        return memory.used // 2**20, memory.total // 2**20
+    except (OSError, AttributeError):
+        return None
+
+
 def _vram() -> tuple[int, int]:
-    """(used, total) in MiB, or (0, 0) if nvidia-smi cannot be read.
+    """(used, total) in MiB, or (0, 0) if the GPU cannot be read.
 
     The total is asked for rather than assumed: this ships to whatever card the
     user has, and a hardcoded size turns into a wrong percentage on every other
@@ -50,6 +90,9 @@ def _vram() -> tuple[int, int]:
     path of /ops/status, which the panel polls every two seconds — a missing
     binary used to turn that into a stream of 500s.
     """
+    direct = _nvml()
+    if direct is not None:
+        return direct
     for exe in ("nvidia-smi", str(_NVSMI)):
         try:
             result = subprocess.run(
@@ -293,6 +336,20 @@ async def _stop_llm() -> bool:
     return True
 
 
+async def _await_llm_and_prefill() -> bool:
+    """Ready, then warm: the prompt's fixed part is computed while the
+    speech models are still loading, rather than on the first request."""
+    if not await _await_llm():
+        return False
+    try:
+        from . import agent
+        await agent.prefill()
+    except Exception as e:
+        # A cold prompt is slower, not broken.
+        log.warning("could not prefill the prompt: %s", e)
+    return True
+
+
 async def _await_llm(timeout: float = 120.0) -> bool:
     """Wait until it answers, not merely until it has been started.
 
@@ -415,7 +472,7 @@ async def _load_locked() -> dict:
         if need_llm:
             _set_phase("Starting the language model", 1, total)
             if await _start_llm():
-                waiting = asyncio.create_task(_await_llm())
+                waiting = asyncio.create_task(_await_llm_and_prefill())
             else:
                 _llm_up = False
         if need_speech:

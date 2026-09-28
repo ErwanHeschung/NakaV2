@@ -28,9 +28,9 @@ Each parent puts its children in a Windows job object with kill on close (`serve
 
 1. **Capture.** The tray's keyboard hook sees the talk key go down and calls `/ops/wake`, so any model reload overlaps with the person speaking. Audio is recorded while the key is held (`client/audio.py`).
 2. **Speech to text.** `/converse` receives a WAV. faster-whisper `large-v3-turbo` transcribes it, with the language forced rather than detected (`server/stt.py`).
-3. **Prompt.** `server/memory.py` assembles persona, facts, summary and recent turns, stable parts first so llama.cpp can reuse its cached prefix. The clock and wake notes go just before the user's message for the same reason.
-4. **Language model.** The reply streams from llama-server and is cut into sentences as they complete (`server/llm.py`). With tools on, the first delta already says whether the model is speaking or calling a tool, so offering tools costs no waiting.
-5. **Speech.** Each sentence is synthesised by Kokoro as soon as it exists (`server/tts.py`), then passed through the voice chain (`server/dsp.py`: pitch and formant shift, EQ, chorus, compression, limiter) built on PyAV filters.
+3. **Prompt.** `server/memory.py` assembles it in order of how often each part changes, so llama.cpp can reuse its cached prefix: the persona (which the chat template follows with about 3,000 tokens of tool declarations), then facts and summary in a message of their own, then the recent turns, then the clock and wake notes just before the user's message. Facts and summary used to sit inside the persona's message, before the tools, so every fact learnt made llama.cpp recompute the whole prompt, about 5,400 tokens, on the next turn.
+4. **Language model.** The reply streams from llama-server and is cut into sentences as they complete (`server/llm.py`). With tools on, the first delta already says whether the model is speaking or calling a tool, so offering tools costs no waiting. llama-server keeps its full sliding-window cache by default (its `swa-full` option, `[llm] swa_full` in the settings): Gemma's sliding-window layers keep their whole cache, so a turn reuses almost all of the previous prompt instead of recomputing its last ~500 tokens, for about 2 GB more VRAM. llama.cpp's prompt counters for each generation are logged as `llm prompt: N new tokens, M cached`.
+5. **Speech.** The reply is cut into segments by `server/speech.py`: at sentence ends and line breaks, with a code block kept whole, and with the whitespace kept so the chat can render the Markdown as written. What the voice gets is a filtered copy of each segment, without code, links, tables, full paths or hashes; a code block is replaced by one spoken "I've put the code in the chat". Each segment is synthesised by Kokoro as soon as it exists (`server/tts.py`), then passed through the voice chain (`server/dsp.py`: pitch and formant shift, EQ, chorus, compression, limiter) built on PyAV filters.
 6. **Playback.** Audio streams back as raw PCM for the tray and panel, or Ogg Opus for the terminal client, so the first sentence plays while the rest is still being written.
 7. **Afterwards.** The turn is logged (`server/turnlog.py`), and memory is reconciled in the background: facts added or revised, the summary rolled forward.
 
@@ -52,7 +52,25 @@ A single `asyncio.Lock` serialises GPU work in the server. One inference at a ti
 **Powers.** Two groups of tools are also gated by a switch in `settings.toml`, read on every call so the panel can flip them live.
 
 - `server/tools/web.py`: `web_search` (DuckDuckGo with Bing behind it, or Brave with an API key) and `fetch_page` (httpx plus trafilatura for the main text). Any address resolving to loopback, private, link local or reserved ranges is refused, and checked again at every redirect. Results are wrapped as untrusted content.
-- `server/tools/shell.py`: `run_command` runs PowerShell as the user. Whether it asks first is decided per command by PowerShell's own parser: read only means every command anywhere in the input is on an allowlist of commands that only look, with no redirection, method call, assignment or call operator. Anything else, and anything that fails to parse, needs a yes. Once web content has entered a turn, every command in that turn needs one. Each command runs in its own job object with a memory cap and a timeout.
+- `server/tools/shell.py`: `run_command` runs PowerShell as the user. Whether it asks first is decided per command by PowerShell's own parser, which sorts every command anywhere in the input into reading, a change that can be undone (making a folder, copying, moving, renaming, appending, git add and commit), or anything else. Only the last needs a yes: deleting, overwriting, stopping things, running programs or scripts, a redirection, a .NET method not known to be harmless, and anything that fails to parse. Once web content has entered a turn, every command in that turn needs one. Each command runs in its own job object with a memory cap and a timeout.
+
+**Connections.** `server/connections/` has one module per outside service (Telegram, Google Calendar, Open-Meteo weather, Spotify) on a small base class: its settings in `settings.toml` under `[connections.<name>]`, its secrets in Windows Credential Manager through `keyring` (`secrets.py`), a test, and the tools it lends her. Those tools carry `power="conn.<name>"`, so the registry offers them only while the connection is switched on and set up. All outbound traffic goes through `net.request`, which refuses while the switch is off. Google and Spotify sign in with OAuth and PKCE, redirected back to the server itself on `127.0.0.1` (`oauth.py`, `/connections/callback`).
+
+| Guardrail | Where |
+|:-|:-|
+| Only the paired Telegram chat is answered; groups and other chats are dropped and audited | `telegram.Telegram.handle` |
+| Pairing needs /start in Telegram and a click in the panel | `telegram.Telegram.pair` |
+| A Telegram turn is never offered PowerShell | `main.telegram_turn`, `agent.Turn.withhold` |
+| A yes from Telegram only answers what Telegram asked | `agent.answers_pending` |
+| Deleting an event always asks; adding one asks once the turn is tainted, and reading the calendar taints it | `tools.yaml`, `calendar.py` |
+
+**Apps and games.** `server/tools/apps.py` opens what is installed, by name. It never runs a path or a command the model wrote: it picks from an index of the Start menu (`Get-StartApps`), Steam's library manifests and Epic's install manifests, built in the background at startup and rebuilt on a miss. Names are matched loosely, since they come through speech recognition ("fort night", "hollow night"), with English aliases for a French Windows' own apps; a close call between two entries is handed back for her to ask about. Everything starts through `explorer.exe`, so a game is the desktop's child rather than the server's and survives Naka quitting. Once a turn is tainted, opening anything asks first.
+
+**Clipboard, documents, history.** `server/tools/clipboard.py` reads and writes the clipboard through the Win32 API. `server/tools/documents.py` reads PDF (pypdf), Word, PowerPoint and text a part at a time; without the shell power it only reaches Documents, Downloads, the Desktop, the notes and the workspace, and it finds a file by name in them. `server/tools/history.py` searches `conversation.jsonl` by words or by day. What the clipboard or a document contains taints the turn.
+
+**MCP servers.** `server/mcpclient.py` is a small stdio client for the Model Context Protocol, hand-written for the three messages it needs rather than the official SDK and its dependencies. Servers are configured in `config/mcp.json`, in Claude Desktop's shape; environment values entered in the panel go to Credential Manager instead. A server's tools are registered at runtime as `mcp_<server>_<tool>` under power `mcp.<server>`, so they exist only while it runs. A tool that does not declare `readOnlyHint` asks first, every tool asks once the turn is tainted, and every result is marked untrusted. Servers run in the lifetime job and die with Naka.
+
+**Reminders.** `server/tools/reminders.py` keeps reminders for a time of day in `reminders.json` in the data folder. The same watcher that rings timers rings them, in the panel and as a tray notification, and forwards both to Telegram when it is connected. One that came due while Naka was not running rings when it starts, marked late.
 
 While a chain runs, results older than two steps are shortened so they do not push the persona out of the context window.
 
@@ -75,7 +93,7 @@ It reads state over plain HTTP endpoints (`server/panel.py`) and listens on `/ev
 
 ## GPU residency
 
-Naka holds about 9.5 GB of VRAM: roughly 7.7 GB for llama-server and 1.7 GB for Whisper and Kokoro. Loading costs about 8 seconds, so the models stay resident while in use, and `server/ops.py` releases them after a configurable idle period or on request from the tray. The talk key starts the reload, so most of it is absorbed while the person is still speaking.
+Naka holds about 11.5 GB of VRAM: roughly 9.8 GB for llama-server (7.7 GB without the full sliding-window cache) and 1.7 GB for Whisper and Kokoro. Loading costs a few seconds, so the models stay resident while in use, and `server/ops.py` releases them after a configurable idle period or on request from the tray. The talk key starts the reload, so most of it is absorbed while the person is still speaking. Once llama-server answers, the fixed part of the prompt (persona, facts, tool declarations) is computed while the speech models are still loading (`agent.prefill`), so the first turn after a reload does not pay for it: its first sentence arrives in about 0.3 s instead of 1.8 s.
 
 Operational controls (`/ops/*`) are deliberately not tools: the model cannot unload itself or stop its own server.
 
@@ -100,7 +118,10 @@ Config files are seeded from the shipped defaults once and never overwritten. Se
 
 ```
 server/        FastAPI app: STT, LLM client, agent, tools, memory, voice, panel API
-  tools/       registry and allowlist, builtin tools, web, PowerShell
+  tools/       registry and allowlist, builtin tools, reminders, apps, clipboard,
+               documents, history, web, PowerShell
+  mcpclient.py MCP servers: started, listed, called
+  connections/ Telegram, Google Calendar, weather, Spotify: opt in, one module each
 tray/          Naka.exe: tray icon, push to talk, panel window, server supervisor
 client/        audio helpers shared with the tray, and a terminal push to talk client
 setup/         first run wizard and its steps
@@ -117,7 +138,11 @@ scripts/       naka.ps1 and notes on running from a checkout
 |:-|:-|
 | `uv run python eval\test_guardrails.py` | The agent's guardrails with scripted model replies, and real PowerShell for classification, timeouts and the kill switch |
 | `uv run python eval\regression.py` | Reference phrases replayed through the running server: nothing stopped answering, got slow or lost its voice |
-| `uv run python eval\e2e_bench.py` | Time to first sound |
+| `uv run python eval\test_turns.py` | The three ways a turn arrives (typed, spoken, Telegram), end to end without models: what is recorded, remembered, and kept when a reply is cut off or fails |
+| `uv run python eval\pipeline_bench.py LABEL` | Time to first sound stage by stage (speech to text, first sentence, Kokoro, DSP) over a 16-turn spoken conversation, with the memory doing what it does between real turns |
+| `uv run python eval\llm_cache_bench.py` | How much of each prompt llama-server recomputes, for several server configurations |
+| `uv run python eval\reload_bench.py` | The first turn after the language model reloads, with and without the prompt prefilled |
+| `uv run python eval\e2e_bench.py` | Phase 0's time to first sound, components alone |
 | `npm run check` in `ui/` | Types, lint and formatting of the panel |
 
 Benchmarks and the decisions they led to (Gemma over Qwen3, Kokoro over Chatterbox, reasoning tokens off) are written up in [eval/RESULTS.md](eval/RESULTS.md).

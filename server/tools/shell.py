@@ -1,12 +1,15 @@
 """A PowerShell prompt, run as the person, behind their word.
 
 What runs without asking is decided by PowerShell's own parser, not by
-matching text: a command is read-only only if every command anywhere in it —
-piped, nested in $( ), inside a script block — is on a short list of commands
-that only look, and nothing in it redirects to a file, calls a .NET method or
-assigns anything. Everything else, including whatever fails to parse, waits for
-a spoken yes. A regex over the command line would be fooled by the first alias
-or subexpression; the parser is the thing that will actually run it.
+matching text. Every command anywhere in the input (piped, nested in $( ),
+inside a script block) is sorted into one of three: reading, a change that
+can be undone (making a folder, copying, moving, renaming, appending), or
+anything else. Only the last waits for a yes: deleting, overwriting,
+stopping things, running programs or scripts, and whatever the parser cannot
+account for, including a redirection to a file or a .NET method that is not
+known to be harmless. A regex over the command line would be fooled by the
+first alias or subexpression; the parser is the thing that will actually run
+it.
 
 Each command runs in a job object of its own, capped in memory and killed —
 with every process it started — when it runs too long or the kill switch
@@ -56,6 +59,24 @@ READ_ONLY = {
     "tasklist.exe", "where.exe", "tree", "tree.com", "findstr", "findstr.exe",
     "nvidia-smi", "nvidia-smi.exe",
 }
+
+# Changes that can be undone, and are what "make a folder for the photos and
+# copy them in" is made of. Asking before each of these made every task a
+# conversation about permission. Deleting, overwriting and running programs
+# are deliberately absent: those still ask.
+CHANGES = {
+    "new-item", "ni", "mkdir", "md", "copy-item", "copy", "cp", "cpi",
+    "move-item", "move", "mv", "mi", "rename-item", "ren", "rni",
+    "add-content", "ac", "compress-archive", "expand-archive",
+    "set-location", "cd", "sl", "chdir", "push-location", "pushd",
+    "pop-location", "popd", "start-sleep", "sleep",
+    "invoke-webrequest", "iwr", "invoke-restmethod", "irm",
+}
+
+# git subcommands that change the working copy in ways git itself can undo.
+# push, reset, clean, rebase, checkout of files and branch deletion still ask.
+GIT_CHANGES = {"add", "commit", "fetch", "pull", "stash", "switch", "init",
+               "clone", "merge", "mv"}
 
 # .NET methods that only compute. Rounding a size to gigabytes needed
 # [math]::Round, and every such listing waited for a yes as if it could write.
@@ -192,40 +213,48 @@ def _git_reads(args: list[str]) -> bool:
 
 
 def classify(command: str) -> str:
-    """"read" if the command only looks, "write" for anything else."""
+    """"read" if it only looks, "change" if everything it does can be undone,
+    "destructive" for anything else, including what cannot be accounted for."""
     report = inspect(command.strip())
     if report is None or report.get("errors"):
-        return "write"
-    if report.get("redirections") or report.get("assignments"):
-        return "write"
+        return "destructive"
+    # A redirection overwrites whatever file it names.
+    if report.get("redirections"):
+        return "destructive"
     methods = report.get("methods") or []
     for method in [methods] if isinstance(methods, dict) else methods:
         member = (method.get("member") or "").lower()
         if method.get("static"):
             if ((method.get("type") or "").lower() not in SAFE_TYPES
                     or member not in SAFE_STATIC):
-                return "write"
+                return "destructive"
         elif member not in SAFE_INSTANCE:
-            return "write"
-    if not report["commands"]:
-        # Nothing but expressions — `1 + 1`, a string. Harmless.
-        return "read"
+            return "destructive"
+    # A variable in this command's own session, gone when it ends.
+    verdict = "change" if report.get("assignments") else "read"
     for entry in report["commands"]:
         name = (entry.get("name") or "").lower()
         if entry.get("operator") not in ("", "Unknown"):
-            return "write"
+            return "destructive"  # & or . : a script or program, unknowable
         if name in ("git", "git.exe"):
-            if not _git_reads(entry.get("args") or []):
-                return "write"
+            args = [a.strip("'\"") for a in entry.get("args") or []]
+            if _git_reads(args):
+                continue
+            if args and args[0] in GIT_CHANGES:
+                verdict = "change"
+                continue
+            return "destructive"
+        if name in CHANGES:
+            verdict = "change"
         elif name not in READ_ONLY:
-            return "write"
-    return "read"
+            return "destructive"
+    return verdict
 
 
 def _needs_confirmation(arguments: dict, tainted: bool) -> bool:
     # Once a web page has been read this turn, even a listing waits: the page
     # may be what asked for it, and what it lists goes back to the model.
-    return tainted or classify(arguments.get("command", "")) != "read"
+    return tainted or classify(arguments.get("command", "")) == "destructive"
 
 
 def _clip(text: str) -> str:
@@ -251,11 +280,11 @@ def abort() -> bool:
 @tool(
     description=(
         "Run a PowerShell command on the user's Windows PC, as the user, and "
-        "get its output. Commands that only read (Get-ChildItem, Get-Content, "
-        "Select-String, git status...) run at once; anything that changes "
-        "something is read out to the user and waits for their yes. Work in "
-        "small steps and check each result before the next. The output is "
-        "for you: summarise it, never read it out."
+        "get its output. Reading, making folders, copying, moving, renaming "
+        "and appending run at once; deleting, overwriting, stopping things "
+        "or running programs is put to the user first, automatically. Work "
+        "in small steps and check each result before the next. The output "
+        "is for you: summarise it, never read it out."
     ),
     parameters={
         "command": {"type": "string",
@@ -267,7 +296,7 @@ def abort() -> bool:
     power="shell",
     confirm=_needs_confirmation,
     label="Run PowerShell",
-    summary="Commands on this PC, as you. Looking runs at once; changing anything waits for your yes.",
+    summary="Commands on this PC, as you. Deleting, overwriting or running programs waits for your yes.",
 )
 def run_command(command: str, cwd: str = ""):
     global _active

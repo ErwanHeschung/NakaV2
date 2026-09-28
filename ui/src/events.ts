@@ -21,12 +21,18 @@ export type Topic =
   | 'settings'
   | 'client'
   | 'turn'
-  | 'ops';
+  | 'ops'
+  | 'connections';
+
+/** How a message reached her. */
+export type Via = 'voice' | 'text' | 'telegram';
 
 export interface ServerEvent {
   topic: Topic;
-  /** Only on a timer that has come due. */
+  /** Only on a timer or reminder that has come due. */
   rang?: string;
+  /** Set to 'reminder' when what rang was a reminder, not a timer. */
+  kind?: 'reminder';
   at?: number;
   /** Only on 'client': what the tray's push-to-talk is doing. */
   state?: string;
@@ -39,7 +45,7 @@ export interface ServerEvent {
   phase?: 'heard' | 'sentence' | 'done';
   /** On 'heard', what was said to her; on 'sentence', what she said. */
   text?: string;
-  via?: 'voice' | 'text';
+  via?: Via;
   interrupted?: boolean;
 }
 

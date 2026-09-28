@@ -49,6 +49,9 @@ def argv() -> list[str]:
         "--ctx-size", str(settings.LLM["ctx_size"]),
         # The model's own chat template, which tool calling depends on.
         "--jinja",
+        # A full-size cache for the sliding-window layers, so a turn reuses
+        # the previous prompt instead of recomputing its last ~500 tokens.
+        *(["--swa-full"] if settings.LLM.get("swa_full", True) else []),
     ]
 
 

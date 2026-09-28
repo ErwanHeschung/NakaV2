@@ -280,6 +280,225 @@ body {
   border-radius: 4px;
 }
 
+/* Her replies are Markdown, rendered into block elements: the bubble's
+   pre-wrap would add the source's line breaks on top of them. */
+.msg.her .bubble {
+  white-space: normal;
+  /* Sized by its content, so a long line of code would stretch it past the
+     message's width; capped, the code block scrolls instead. */
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.bubble > :first-child {
+  margin-top: 0;
+}
+
+.bubble > :last-child {
+  margin-bottom: 0;
+}
+
+.bubble p {
+  margin: 0 0 8px;
+}
+
+.bubble ul,
+.bubble ol {
+  margin: 4px 0 8px;
+  padding-left: 20px;
+}
+
+.bubble li + li {
+  margin-top: 2px;
+}
+
+.bubble li > ul,
+.bubble li > ol {
+  margin: 2px 0;
+}
+
+.bubble strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.bubble a {
+  color: var(--live);
+  text-decoration: none;
+  border-bottom: 1px solid rgba(77, 159, 255, 0.35);
+}
+
+.bubble a:hover {
+  border-bottom-color: var(--live);
+}
+
+.bubble .md-heading {
+  margin: 12px 0 6px;
+  color: var(--ink);
+  font-size: 13.5px;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.bubble blockquote {
+  margin: 6px 0 8px;
+  padding: 2px 0 2px 10px;
+  border-left: 2px solid var(--line);
+  color: var(--ink-faint);
+}
+
+.bubble hr {
+  border: 0;
+  border-top: 1px solid var(--line);
+  margin: 10px 0;
+}
+
+.md-code {
+  margin: 6px 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: rgba(0, 0, 0, 0.3);
+  overflow: hidden;
+}
+
+.md-code-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 6px 4px 10px;
+  border-bottom: 1px solid var(--line-soft);
+  font-size: 11px;
+  color: var(--ink-faint);
+}
+
+.md-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font: inherit;
+  color: var(--ink-faint);
+  background: none;
+  border: 0;
+  border-radius: 5px;
+  padding: 2px 6px;
+  cursor: pointer;
+}
+
+.md-copy:hover {
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.md-code pre,
+.md-table {
+  scrollbar-width: thin;
+  scrollbar-color: #33394c transparent;
+}
+
+.md-code pre {
+  margin: 0;
+  padding: 9px 11px;
+  overflow-x: auto;
+  white-space: pre;
+}
+
+.bubble .md-code code {
+  background: none;
+  padding: 0;
+  font-size: 12px;
+  color: var(--ink);
+}
+
+/* Code colours, in the panel's own palette rather than a stock theme. */
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-built_in,
+.hljs-type {
+  color: #c792ea;
+}
+
+.hljs-string,
+.hljs-regexp,
+.hljs-addition,
+.hljs-attr .hljs-string {
+  color: #a5d6a7;
+}
+
+.hljs-number,
+.hljs-literal,
+.hljs-symbol {
+  color: #f7b267;
+}
+
+.hljs-comment,
+.hljs-quote {
+  color: var(--ink-faint);
+  font-style: italic;
+}
+
+.hljs-title,
+.hljs-title.function_,
+.hljs-section {
+  color: #82aaff;
+}
+
+.hljs-attr,
+.hljs-attribute,
+.hljs-variable,
+.hljs-template-variable,
+.hljs-params {
+  color: #f2c3ff;
+}
+
+.hljs-tag,
+.hljs-name,
+.hljs-selector-class,
+.hljs-selector-id {
+  color: #7fdbca;
+}
+
+.hljs-meta,
+.hljs-doctag {
+  color: #89ddff;
+}
+
+.hljs-deletion {
+  color: var(--bad);
+}
+
+.hljs-emphasis {
+  font-style: italic;
+}
+
+.hljs-strong {
+  font-weight: 600;
+}
+
+.md-table {
+  margin: 6px 0 8px;
+  overflow-x: auto;
+}
+
+.md-table table {
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.md-table th,
+.md-table td {
+  padding: 4px 9px;
+  border: 1px solid var(--line);
+  text-align: left;
+}
+
+.md-table th {
+  color: var(--ink);
+  font-weight: 600;
+  background: rgba(255, 255, 255, 0.04);
+}
+
 .msg .meta {
   display: flex;
   align-items: center;
@@ -972,6 +1191,216 @@ button.item.clickable:hover {
   font-size: 12px;
   line-height: 1.45;
   margin-bottom: 12px;
+}
+
+/* ----------------------------------------------------------------- dialog */
+
+button.btn.primary {
+  color: var(--ink);
+  border-color: rgba(124, 92, 255, 0.55);
+  background: rgba(124, 92, 255, 0.22);
+}
+
+button.btn.primary:hover:not(:disabled) {
+  border-color: rgba(124, 92, 255, 0.8);
+  background: rgba(124, 92, 255, 0.32);
+}
+
+button.btn.danger.solid {
+  color: #fff;
+  border-color: rgba(255, 107, 107, 0.55);
+  background: rgba(255, 107, 107, 0.22);
+}
+
+button.btn.danger.solid:hover:not(:disabled) {
+  color: #fff;
+  border-color: rgba(255, 107, 107, 0.85);
+  background: rgba(255, 107, 107, 0.34);
+}
+
+button.btn:focus-visible {
+  outline: 2px solid var(--live);
+  outline-offset: 2px;
+}
+
+dialog.ask {
+  width: min(380px, calc(100vw - 32px));
+  padding: 20px 20px 16px;
+  border: 1px solid #2b3142;
+  border-radius: var(--radius);
+  background: linear-gradient(180deg, #171b24, #12151c);
+  color: var(--ink);
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.65);
+  animation: ask-in 0.14s ease-out;
+}
+
+dialog.ask::backdrop {
+  background: rgba(4, 5, 8, 0.6);
+  backdrop-filter: blur(3px);
+}
+
+dialog.ask h2 {
+  margin: 0 0 8px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+dialog.ask p {
+  margin: 0;
+  color: var(--ink-dim);
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.ask-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+@keyframes ask-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.98);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  dialog.ask {
+    animation: none;
+  }
+}
+
+/* ------------------------------------------------------------ connections */
+
+.dot.bad {
+  background: var(--bad);
+  box-shadow: 0 0 9px rgba(255, 107, 107, 0.5);
+}
+
+.conn {
+  padding: 4px 12px 12px;
+  margin-bottom: 12px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+/* Off: the heading and the switch, and nothing to fill in yet. */
+.conn.off {
+  opacity: 0.7;
+}
+
+.conn .row.spaced:first-child {
+  margin: 10px 0 4px;
+}
+
+/* The heading follows the logo rather than starting the card, so it would
+   otherwise keep h3's top margin and sit below the logo's centre line. */
+.conn .row > h3 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 12px;
+}
+
+/* A small tile, as an app's icon sits on a phone: the logo reads as the
+   service's own, whatever colour the panel is. */
+.conn-logo {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.06);
+  flex: none;
+}
+
+.conn-logo img,
+.conn-logo .icon {
+  width: 16px;
+  height: 16px;
+  display: block;
+}
+
+.conn-logo.weather {
+  color: #f5b841;
+}
+
+.conn-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--ink-dim);
+  margin: 6px 0 10px;
+}
+
+.conn a,
+.guide a {
+  color: var(--live);
+}
+
+.guide {
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--ink-dim);
+}
+
+.guide summary {
+  cursor: pointer;
+  color: var(--ink);
+}
+
+.guide ol {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  line-height: 1.5;
+}
+
+.guide li + li {
+  margin-top: 4px;
+}
+
+.guide-link {
+  margin-left: 5px;
+  vertical-align: middle;
+}
+
+.conn-logo.mcp {
+  color: var(--accent);
+}
+
+.item.mcp {
+  margin-bottom: 8px;
+}
+
+.mcp-tools {
+  margin: 6px 0 0;
+  padding-left: 16px;
+}
+
+.mcp-tools li + li {
+  margin-top: 5px;
+}
+
+.mcp-tools .tag {
+  margin-left: 6px;
+}
+
+.mcp-add {
+  margin: 4px 0 10px;
+}
+
+.mcp-add textarea {
+  min-height: 60px;
+}
+
+/* Day and time of a reminder, side by side. */
+.row > .control {
+  flex: 1;
+  min-width: 0;
 }
 
 /* Save stays reachable without scrolling back up a long settings form. */

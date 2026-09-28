@@ -35,6 +35,9 @@ AUDIO: dict = {}
 LOGS: dict = {}
 OPS: dict = {}
 POWERS: dict = {}
+# One table per connection, [connections.<name>]. Secrets are never here:
+# see server/connections/secrets.py.
+CONNECTIONS: dict = {}
 VOICE: dict = {}
 
 
@@ -61,6 +64,7 @@ def reload() -> None:
     sections = {
         "client": CLIENT, "identity": IDENTITY, "server": SERVER, "llm": LLM, "stt": STT,
         "tts": TTS, "audio": AUDIO, "logs": LOGS, "ops": OPS, "powers": POWERS,
+        "connections": CONNECTIONS,
     }
     for name, target in sections.items():
         target.clear()
@@ -71,3 +75,29 @@ def reload() -> None:
 
 
 reload()
+
+
+def save(changes: dict[str, object]) -> None:
+    """Write dotted keys into the person's settings.toml, then reload.
+
+    For values the server works out itself rather than ones typed into a
+    field: a paired Telegram chat, a city's coordinates. Round-tripped with
+    tomlkit, like the panel's saves, so the comments in the file survive.
+    """
+    import tomlkit
+
+    doc = (tomlkit.parse(SETTINGS_FILE.read_text(encoding="utf-8"))
+           if SETTINGS_FILE.exists() else tomlkit.document())
+    for key, value in changes.items():
+        *parents, last = key.split(".")
+        node = doc
+        for part in parents:
+            if part not in node:
+                node[part] = tomlkit.table()
+            node = node[part]
+        node[last] = value
+    SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    tmp = SETTINGS_FILE.with_suffix(".toml.tmp")
+    tmp.write_text(tomlkit.dumps(doc), encoding="utf-8")
+    tmp.replace(SETTINGS_FILE)
+    reload()

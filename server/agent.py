@@ -31,8 +31,10 @@ import httpx
 
 from . import llm, settings
 from .memory import _clip
-from .tools import builtin, files, shell, web  # noqa: F401  registers them
-from .tools.registry import AGENT, call, get, schemas
+from . import connections  # noqa: F401  registers their tools
+from .tools import (apps, builtin, clipboard, documents,  # noqa: F401
+                    files, history, reminders, shell, web)
+from .tools.registry import AGENT, available, call, get
 
 log = logging.getLogger("naka.agent")
 
@@ -50,26 +52,49 @@ PROGRESS = {
     "fetch_page": "Reading the page.",
     "run_command": "Checking.",
     "find_files": "Looking.",
+    # A file's whole content is written into the call before it runs: a
+    # page of HTML was 10 to 16 seconds of silence.
+    "write_file": "Writing it now.",
 }
+
+# Every turn with tools, not only with web or PowerShell on. Written from
+# the conversation log: she asked "should I go ahead?" in words and made no
+# call, twice in a row for one file; gave up on "credit song" after one
+# folder; asked where to look instead of looking.
+ACTING_PROMPT = """## Doing things
+
+- A request is a goal, not one action. Do every step it takes, one after \
+another in this same reply, until it is done: "put some music on" is \
+choosing something and playing it; if a step fails, work around it (open \
+what needs opening, try again) instead of reporting the failure.
+- Fill in what was left open yourself, from what you know about them, the \
+time of day and what they asked before, rather than asking: "play a song" \
+means pick one they would like. Say what you chose, in a few words.
+- Do not announce actions, do not say "one second", and never end a reply \
+having promised an action you did not take.
+- Never ask for permission in words ("should I go ahead?", "do you want me \
+to?", "is that alright?"). Whatever needs the user's agreement is put to \
+them automatically before it runs, so asking first only makes them say yes \
+twice.
+- What you hear comes through speech recognition and is often slightly \
+wrong: a name misheard, a word missing, two words run together. Take the \
+most likely meaning and act on it, and when it was not obvious say in a few \
+words how you understood it ("I took that as the song Credits, on \
+Spotify"). Ask only when two readings would lead to different actions and \
+a wrong guess would be costly.
+- When you look for something and the first try finds nothing, keep looking \
+before you report: other places, fewer or different words, a likely \
+misspelling, another tool that could hold it. Then say what came closest, \
+rather than asking where to look.
+- Work in small steps and look at each result before the next. If a result \
+is an error, fix the cause and try again, or say plainly what went wrong.
+- Never read out raw output, code, full paths or web addresses; say what \
+they mean, in a sentence or two. A file's or folder's own name is fine to \
+say."""
 
 POWERS_PROMPT = """## Reaching beyond this conversation
 
-{abilities}
-
-How to work:
-- Act, do not announce. If a tool can do what was asked, call it in this same \
-reply. Never say you will do something later, never say "one second", and \
-never finish a reply having promised an action you did not take.
-- Do not ask whether to go ahead. Anything that changes something is put to \
-the user automatically before it runs, so asking first only makes them say \
-yes twice.
-- Work in small steps and look at each result before the next. After \
-changing something, check it worked.
-- If a result is an error, fix the cause and try again, or say plainly what \
-went wrong.
-- Never read out raw output, code, full paths or web addresses; say what \
-they mean, in a sentence or two. A file's or folder's own name is fine to \
-say, and usually the answer."""
+{abilities}"""
 
 WEB_ABILITY = """Web:
 - web_search finds pages; fetch_page reads one. Anything that can change — \
@@ -124,8 +149,23 @@ def _paths() -> dict:
             "workspace": shell.workspace()}
 
 
+# Said once, plainly, so the model answers instead of retrying the call
+# until the step ceiling.
+WITHHELD = ("Error: that tool is not available for this message: commands "
+            "on the PC cannot be run from Telegram. Do not try again. Tell "
+            "the user in one sentence to ask at the PC.")
+
 REPEATED = ("You already made exactly this call in this request, and its "
             "result is above. Use that result, or do something different.")
+
+REPEAT_LIMIT = 2
+ANSWER_NOW = ("You have no more tools for this request. Answer the user now, "
+              "in a sentence or two, from what you already have. If you could "
+              "not do what they asked, say so plainly. Do not write a tool "
+              "call.")
+# What a tool call looks like when the model writes one as text instead of
+# making it. Never to be spoken.
+RAW_CALL = re.compile(r"<\|?tool_call|<tool_call>|\bcall:[a-z_]+\{")
 
 # Past this many searches in one request, the model is told to answer with
 # what it has. Not a hard stop: the step ceiling is that.
@@ -134,14 +174,74 @@ ENOUGH_SEARCHING = ("\n\n(That is several searches for one question. Answer "
                     "now from what you have found, and say plainly if it was "
                     "not enough.)")
 
+# A promise to act, not any sentence with "let me" or "right now" in it:
+# matched as broadly as that, it caught "let me know if you need anything"
+# and "it's overcast right now", and the nudge that followed made her tack
+# "I'm sorry, I can't do that" onto answers that were fine (40 in the log).
+_ACT = (r"(?:check|look|find|search|open|launch|start|get|put|play|set|make|"
+        r"create|write|save|send|add|close|try|see|do|run|go ahead)")
 PROMISE = re.compile(
-    r"\b(let me|i'll|i will|i'm going to|i am going to|one sec|one second|"
-    r"one moment|give me a (?:sec|second|moment)|on it|right away|"
-    r"right now)\b", re.IGNORECASE)
+    rf"\b(?:let me {_ACT}|i'll {_ACT}|i will {_ACT}|i'm going to {_ACT}|"
+    rf"i am going to {_ACT}|one sec|one second|one moment|"
+    r"give me a (?:sec|second|moment)|i'm on it)\b", re.IGNORECASE)
+
+# Things said as done that only a call can do, by the tool that does them.
+# Heard in the bench: a translation read out, then "I've put it on your
+# clipboard", with no call made and nothing copied.
+CLAIMS = {
+    # Said as written, not read: "the text on your clipboard says" is not a
+    # claim to have copied anything.
+    "write_clipboard": re.compile(
+        r"\b(?:put|placed|copied|added|saved|popped|dropped)\b[^.!?]{0,40}"
+        r"\bclipboard\b|\bcopied (?:it|that|this)\b|\bready to paste\b",
+        re.IGNORECASE),
+}
+
+CLAIMED = ("You said {what} is done, but you did not call {tool}, so it did "
+           "not happen. Call {tool} now with the full text. Do not repeat "
+           "what you already said. Do not apologise or comment on this.")
+
+# Any "I've done it" in a turn that called nothing at all: "I've put that
+# into poem.txt" with no file written, heard in the bench.
+DONE = re.compile(
+    r"\b(?:I've|I have|I just)\s+(?:put|saved|written|wrote|created|made|"
+    r"opened|launched|closed|set|sent|added|started|moved|copied|deleted|"
+    r"played|queued|paused|scheduled)\b", re.IGNORECASE)
+
+DID_NOTHING = ("You said you did something, but you made no tool call this "
+               "turn, so nothing happened. Make the call now. Do not repeat "
+               "what you already said. Do not apologise or comment on this.")
+
+# Asking in words instead of acting. Narrow on purpose: an offer to talk
+# more ("want to hear another?") should not trip it as often as a request
+# for permission to do what was just asked.
+PERMISSION = re.compile(
+    r"\b(should I|shall I|do you want me to|would you like me to|"
+    r"want me to (?:go ahead|do|create|make|open|launch|run|delete|move|"
+    r"save|write|send|play|set)|go ahead\?|proceed\?|"
+    r"is that (?:alright|all right|okay|ok)\?)", re.IGNORECASE)
+
+ASKED = ("You asked for permission in words and made no tool call, so nothing "
+         "happened. You do not need to ask: anything that needs the user's "
+         "agreement is put to them automatically. If a tool can do what was "
+         "asked, make the call now. Do not repeat what you already said. Do not apologise or comment on this.")
 
 NUDGE = ("You just said you would do something, but you made no tool call, so "
          "nothing happened. If your tools can do it, make the call now. If "
-         "they cannot, say so in one sentence. Do not announce it again.")
+         "they cannot, say so in one sentence. If you were not promising to "
+         "do anything, reply with nothing at all. Do not announce it again. Do not apologise or comment on this.")
+
+
+def _unbacked_claim(turn: "Turn", said: str) -> str | None:
+    """The tool a reply says it used, when it is offered and was not."""
+    for name, claim in CLAIMS.items():
+        if not claim.search(said):
+            continue
+        made = any(done.startswith(f"{name}:") for done in turn.done)
+        offered = any(t["function"]["name"] == name for t in _offered(turn))
+        if offered and not made:
+            return name
+    return None
 
 
 def powers_on() -> list[str]:
@@ -187,14 +287,26 @@ class Turn:
     working: list[dict]
     started: float = field(default_factory=time.perf_counter)
     step: int = 0
-    # Whether untrusted web content has entered this turn.
+    # Whether untrusted content has entered this turn: a web page, a
+    # calendar invitation, or the request itself when it came by Telegram.
     tainted: bool = False
+    # Powers whose tools this turn does not get, whatever the switches say.
+    # A turn from Telegram never gets PowerShell.
+    withhold: frozenset[str] = frozenset()
+    # Where the request came from: "pc" (voice or the panel) or "telegram".
+    origin: str = "pc"
     # Whether the model has already been told it promised without acting.
     nudged: bool = False
     # Every call made this turn, by name and arguments, so an exact repeat
     # can be answered from the first without running it again.
     done: set[str] = field(default_factory=set)
     searches: int = 0
+    # Whether the first step came back empty at the length limit and is being
+    # asked again with the thinking channel banned.
+    stuck: bool = False
+    # Exact repeats refused so far. Past REPEAT_LIMIT the model is offered no
+    # tools at all, so the only thing left for it to do is answer.
+    repeats: int = 0
     announced: set[str] = field(default_factory=set)
     # The step each tool message belongs to, by its index in `working`, so
     # old results can be shortened once the loop has moved past them.
@@ -209,6 +321,18 @@ pending: dict | None = None
 def is_affirmative(text: str) -> bool:
     cleaned = text.strip().lower().rstrip(".!")
     return cleaned in AFFIRMATIVE or cleaned.startswith(("yes", "yeah", "oui"))
+
+
+def answers_pending(origin: str) -> bool:
+    """Whether a message from here is the answer to the waiting question.
+
+    Someone at the PC can answer anything. A Telegram message only answers
+    what Telegram asked: a yes typed on a phone must not approve a command
+    that was put to the person sitting at the machine.
+    """
+    if pending is None:
+        return False
+    return origin == "pc" or pending.get("origin") == origin
 
 
 def pending_view() -> dict | None:
@@ -273,23 +397,25 @@ async def resolve_pending(user_text: str,
         yield sentence
 
 
-def _with_powers(messages: list[dict]) -> list[dict]:
-    """The conversation with the powers' rules added to the system prompt.
+def _with_rules(messages: list[dict]) -> list[dict]:
+    """The conversation with the rules for acting, and those of any power
+    that is on, added to the system prompt.
 
-    Appended to the one system prompt rather than sent as a second message:
-    it stays part of the cached prefix for as long as the switches do not
-    move, instead of splitting it.
+    Appended to the first system prompt rather than sent as a message of
+    their own: they stay part of the cached prefix for as long as the
+    switches do not move, instead of splitting it.
     """
-    on = powers_on()
-    if not on or not messages or messages[0].get("role") != "system":
+    if not messages or messages[0].get("role") != "system":
         return list(messages)
-    abilities = "\n\n".join(
-        a for p, a in (("web", WEB_ABILITY),
-                       ("shell", SHELL_ABILITY.format(**_paths())))
-        if p in on)
+    rules = [ACTING_PROMPT]
+    on = powers_on()
+    if on:
+        rules.append(POWERS_PROMPT.format(abilities="\n\n".join(
+            a for p, a in (("web", WEB_ABILITY),
+                           ("shell", SHELL_ABILITY.format(**_paths())))
+            if p in on)))
     first = dict(messages[0])
-    first["content"] = (first["content"] + "\n\n"
-                        + POWERS_PROMPT.format(abilities=abilities))
+    first["content"] = "\n\n".join([first["content"], *rules])
     return [first, *messages[1:]]
 
 
@@ -307,15 +433,43 @@ def _shorten_old_results(turn: Turn) -> None:
 
 
 async def run(messages: list[dict],
-              actions: list[dict] | None = None) -> AsyncIterator[str]:
+              actions: list[dict] | None = None, *, tainted: bool = False,
+              withhold: frozenset[str] = frozenset(),
+              origin: str = "pc") -> AsyncIterator[str]:
     """Run the loop, yielding sentences as they are ready to speak.
 
     Anything actually run is appended to `actions`, so the turn can be
-    recorded as it happened rather than as it sounded.
+    recorded as it happened rather than as it sounded. `tainted` starts the
+    turn as if untrusted content had already entered it, for requests that
+    did not come from someone at the PC.
     """
     kill_switch.reset()
-    async for sentence in _loop(Turn(_with_powers(messages)), actions):
+    turn = Turn(_with_rules(messages), tainted=tainted, withhold=withhold,
+                origin=origin)
+    async for sentence in _loop(turn, actions):
         yield sentence
+
+
+async def prefill() -> None:
+    """Have llama-server compute the prompt's fixed part before it is needed.
+
+    A freshly started llama-server has an empty cache, so the first turn
+    after a reload paid for the whole prefix: persona, facts and about 3,000
+    tokens of tool declarations, roughly a second. Asked for one token now,
+    while the speech models are still loading, it has that prefix cached
+    when the first real request arrives, which then only computes its own
+    end. Built exactly as a turn's prompt is, so the tokens match.
+    """
+    from .memory import memory
+
+    messages = _with_rules(memory.messages("."))
+    tools = (_offered(Turn(messages))
+             if settings.CLIENT.get("use_tools", True) else [])
+    await llm.prefill(messages, tools)
+
+
+def _offered(turn: Turn) -> list[dict]:
+    return [t.schema() for t in available() if t.power not in turn.withhold]
 
 
 async def _loop(turn: Turn, actions: list[dict] | None) -> AsyncIterator[str]:
@@ -334,6 +488,9 @@ async def _loop(turn: Turn, actions: list[dict] | None) -> AsyncIterator[str]:
             return
 
         _shorten_old_results(turn)
+        cornered = turn.repeats >= REPEAT_LIMIT
+        if cornered and working[-1].get("content") != ANSWER_NOW:
+            working.append({"role": "system", "content": ANSWER_NOW})
         # Streamed, and spoken as it arrives. Content and tool_calls never
         # both start a reply, so the first delta already says which this is —
         # waiting for a complete response to find out was costing 610ms of
@@ -343,10 +500,25 @@ async def _loop(turn: Turn, actions: list[dict] | None) -> AsyncIterator[str]:
         finish = None
         try:
             async for kind, payload in llm.stream_with_tools(
-                    working, schemas(), max_tokens=_max_tokens()):
+                    working,
+                    [] if cornered else _offered(turn),
+                    max_tokens=_max_tokens(),
+                    # Only on the retried first step: after a tool result the
+                    # model opens that channel as a matter of course, and
+                    # banned there it wrote its next call out as text.
+                    ban_channel=turn.stuck and step == 0):
                 if kind == "sentence":
+                    if RAW_CALL.search(payload):
+                        log.warning("dropped a tool call written as text")
+                        continue
                     said.append(payload)
                     yield payload
+                elif kind == "calling":
+                    # Said as the call starts, not once it has been written.
+                    if (payload in PROGRESS and payload not in turn.announced
+                            and not said):
+                        turn.announced.add(payload)
+                        yield PROGRESS[payload]
                 elif kind == "tool_calls":
                     calls = payload
                 else:
@@ -359,7 +531,48 @@ async def _loop(turn: Turn, actions: list[dict] | None) -> AsyncIterator[str]:
             return
         spoke = bool(said)
 
+        if finish == "length" and not said and not calls:
+            # The model looped on its empty thinking channel to the length
+            # limit and said nothing. Once, on a first step, it is asked
+            # again with that channel banned, which fixed it every time it
+            # was tried; anywhere else it is told rather than left silent.
+            if step == 0 and not turn.stuck:
+                turn.stuck = True
+                log.warning("empty reply at the length limit; retrying")
+                continue
+            yield "I lost my train of thought there. Could you ask again?"
+            return
+
         if not calls:
+            # "It's on your clipboard", with no call behind it: told once,
+            # the model makes the call it claimed to have made.
+            claimed = _unbacked_claim(turn, " ".join(said)) if said else None
+            if claimed and not turn.nudged:
+                turn.nudged = True
+                log.info("claimed %s without calling it; nudging", claimed)
+                working.append({"role": "assistant", "content": " ".join(said)})
+                working.append({"role": "system", "content": CLAIMED.format(
+                    what="that", tool=claimed)})
+                turn.step += 1
+                continue
+            if (said and not turn.nudged and not turn.done and _offered(turn)
+                    and DONE.search(" ".join(said))):
+                turn.nudged = True
+                log.info("said it did something with no call; nudging")
+                working.append({"role": "assistant", "content": " ".join(said)})
+                working.append({"role": "system", "content": DID_NOTHING})
+                turn.step += 1
+                continue
+            # "Should I go ahead?" with nothing behind it, which the log shows
+            # asked up to three times for one file.
+            if (said and not turn.nudged and _offered(turn)
+                    and PERMISSION.search(" ".join(said))):
+                turn.nudged = True
+                log.info("asked permission in words; nudging")
+                working.append({"role": "assistant", "content": " ".join(said)})
+                working.append({"role": "system", "content": ASKED})
+                turn.step += 1
+                continue
             # "I'll make that file now. One second." — and then nothing,
             # which was most of what went wrong in real use. Told once that
             # nothing happened, the model makes the call it described.
@@ -426,6 +639,7 @@ async def _loop(turn: Turn, actions: list[dict] | None) -> AsyncIterator[str]:
             signature = f"{name}:{json.dumps(arguments, sort_keys=True)}"
             if signature in turn.done:
                 log.info("repeated call %s refused", signature[:120])
+                turn.repeats += 1
                 turn.tool_steps[len(working)] = step
                 working.append({"role": "tool", "tool_call_id": call_id,
                                 "content": REPEATED})
@@ -433,6 +647,15 @@ async def _loop(turn: Turn, actions: list[dict] | None) -> AsyncIterator[str]:
             turn.done.add(signature)
 
             tool_obj = get(name)
+            if tool_obj is not None and tool_obj.power in turn.withhold:
+                # Not offered, but named anyway: refused like any tool that
+                # does not exist, and audited as the attempt it was.
+                from .tools.registry import audit
+                audit(name, arguments, "refused", "withheld from this turn")
+                turn.tool_steps[len(working)] = step
+                working.append({"role": "tool", "tool_call_id": call_id,
+                                "content": WITHHELD})
+                continue
             # In a worker: for a command this runs PowerShell's parser.
             if tool_obj is not None and await asyncio.to_thread(
                     tool_obj.needs_confirmation, arguments, turn.tainted):
@@ -442,7 +665,8 @@ async def _loop(turn: Turn, actions: list[dict] | None) -> AsyncIterator[str]:
                 # the resumed conversation has no call left without a result.
                 asked["tool_calls"] = asked["tool_calls"][:position + 1]
                 pending = {"name": name, "arguments": arguments,
-                           "id": call_id, "turn": turn}
+                           "id": call_id, "turn": turn,
+                           "origin": turn.origin}
                 log.info("awaiting confirmation for %s(%s)", name, arguments)
                 yield await _confirmation_question(name, arguments, working)
                 return
@@ -456,7 +680,8 @@ async def _loop(turn: Turn, actions: list[dict] | None) -> AsyncIterator[str]:
             # and blocking here stalls the audio already streaming to the
             # client.
             result = await asyncio.to_thread(call, name, arguments)
-            if (tool_obj is not None and tool_obj.power == "web"
+            if (tool_obj is not None
+                    and (tool_obj.power == "web" or tool_obj.untrusted)
                     and not result.startswith("Error")):
                 turn.tainted = True
             if name == "web_search":
@@ -513,7 +738,20 @@ def _max_tokens() -> int | None:
     return settings.LLM.get("tool_max_tokens", 3072)
 
 
+# How a waiting call is described to the model that phrases the question.
+# "open app: fortnite" read to it as something it had no way to do, and it
+# said so while asking permission to do it.
+PLAIN = {
+    "open_app": "start {name} on the user's PC",
+}
+
+
 def _plain_request(name: str, arguments: dict) -> str:
+    if name in PLAIN:
+        try:
+            return PLAIN[name].format(**arguments)
+        except KeyError:
+            pass
     # Clipped: a file's whole content read into a prompt, only to be
     # summarised as "write a file", is slow and invites reading code aloud.
     detail = ", ".join(str(v)[:80] for v in arguments.values())

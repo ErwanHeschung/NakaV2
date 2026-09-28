@@ -33,10 +33,11 @@ use_tools = true
 # The web: searching, and reading the pages it finds. The models themselves
 # never leave the machine; this only lets her look something up.
 web = false
-# A PowerShell prompt, run as you. Commands that only read — listing, reading
-# a file, git status — run straight away. Anything else waits for you to say
-# yes out loud, and so does every command once web content has entered the
-# turn, since a page can be written to talk her into things.
+# A PowerShell prompt, run as you. Looking, making folders, copying, moving
+# and renaming run straight away. Deleting, overwriting, stopping things or
+# running programs waits for you to say yes out loud, and so does every
+# command once web content has entered the turn, since a page can be written
+# to talk her into things.
 shell = false
 # A Brave Search API key (free tier: 2000 queries a month). Empty uses
 # DuckDuckGo, which needs no account but is less dependable.
@@ -46,6 +47,42 @@ workspace = "~/Documents/Naka Workspace"
 # Longest a single command may run, in seconds, before it and everything it
 # started are killed.
 command_timeout = 20
+
+[connections]
+# Services outside this PC that she can reach, each off until switched on in
+# the panel under Connections. Nothing here goes out over the network while
+# its switch is off. Tokens and client secrets are not kept in this file:
+# they live in Windows Credential Manager, under "Naka".
+
+[connections.telegram]
+enabled = false
+# The one chat allowed to talk to her, set by pairing in the panel. Messages
+# from any other chat are dropped unread.
+chat_id = 0
+# What to send there once paired.
+forward_reminders = true
+forward_timers = true
+
+[connections.calendar]
+enabled = false
+# The OAuth client from your own Google Cloud project (Desktop app). The
+# client secret goes to Credential Manager.
+client_id = ""
+
+[connections.weather]
+enabled = false
+# Geocoded once by Open-Meteo when saved from the panel.
+city = ""
+latitude = 0.0
+longitude = 0.0
+place = ""
+timezone = ""
+
+[connections.spotify]
+enabled = false
+# The client id of your own app on the Spotify developer dashboard. PKCE, so
+# there is no client secret.
+client_id = ""
 
 [server]
 host = "127.0.0.1"
@@ -60,6 +97,12 @@ model_file = "gemma-4-12b-it-qat-q4_0.gguf"
 # Tokens of context. Persona, facts, summary, the recent turns and every tool
 # schema all have to fit, so this is not free to shrink.
 ctx_size = 8192
+# Keep Gemma's sliding-window attention cache at full size, so each turn
+# reuses almost the whole prompt from the last one instead of recomputing
+# about 500 tokens. Measured: first sound 860 -> 691ms in median, 1068 ->
+# 877ms at p90, for about 2.1 GB more VRAM while the model is loaded
+# (eval/pipeline_bench.py). Takes effect the next time the model starts.
+swa_full = true
 temperature = 0.0
 max_tokens = 256
 # The same cap while web or PowerShell is on. A tool call's arguments count

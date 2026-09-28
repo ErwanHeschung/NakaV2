@@ -6,18 +6,20 @@ import json
 import logging
 import time
 from datetime import datetime
-from pathlib import Path
-from contextlib import asynccontextmanager
+from collections.abc import AsyncIterator
+from contextlib import aclosing, asynccontextmanager
 
 from fastapi import FastAPI, Form, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import (agent, conversation, events, llm, logprune, logsetup, models, ops,
-               panel, paths, settings, stt, tts, turnlog)
+from . import (agent, connections, conversation, events, llm, logprune,
+               logsetup, mcpclient, models, ops, panel, paths, settings,
+               speech, stt, tts, turnlog)
+from .connections import routes as connection_routes
 from .memory import memory
-from .tools import builtin
+from .tools import apps, builtin, reminders
 from .tools.registry import AGENT, listed
 
 def turn_note(woke: float) -> str:
@@ -33,7 +35,8 @@ def turn_note(woke: float) -> str:
     """
     now = datetime.now()
     parts = [f"Right now it is {now.strftime('%H:%M on %A %d %B %Y')}."]
-    if woke:
+    # Only a pause long enough to notice is worth a word about it.
+    if woke > 3:
         parts.append(WOKE_NOTE.format(seconds=woke))
     return " ".join(parts)
 
@@ -64,11 +67,23 @@ logsetup.configure()
 log = logging.getLogger("naka")
 
 
+TELEGRAM_NOTE = (
+    " This message was typed on the user's phone and sent through Telegram, "
+    "and your reply goes back there as text: they are away from the PC and "
+    "will not hear you. Keep it short."
+)
+
+
+def _forward(text: str, kind: str) -> None:
+    """Send a ring to Telegram as well, off the loop. Quiet if not connected."""
+    spawn(asyncio.to_thread(connections.telegram().notify, text, kind))
+
+
 async def timer_watcher():
-    """Ring timers as they come due.
+    """Ring timers and reminders as they come due.
 
     Half a second is the resolution: finer buys nothing a person can perceive
-    in a kitchen timer, and the loop is otherwise free. Timers are taken, not
+    in a kitchen timer, and the loop is otherwise free. Both are taken, not
     read, so a slow fan-out cannot ring the same one twice.
     """
     while True:
@@ -77,6 +92,15 @@ async def timer_watcher():
             for timer in builtin.take_due_timers():
                 log.info("timer %r came due", timer["label"])
                 events.publish("timers", rang=timer["label"], at=time.time())
+                _forward(f"Timer: {timer['label']} is up.", "timers")
+            for reminder in reminders.take_due():
+                log.info("reminder %r came due", reminder["text"])
+                late = (" (late: Naka was not running when it was due, at "
+                        f"{datetime.fromtimestamp(reminder['due']):%H:%M})"
+                        if reminder.get("late") else "")
+                events.publish("timers", rang=reminder["text"] + late,
+                               kind="reminder", at=time.time())
+                _forward(f"Reminder: {reminder['text']}{late}", "reminders")
         except asyncio.CancelledError:
             raise
         except Exception:
@@ -97,12 +121,22 @@ async def lifespan(app: FastAPI):
     watcher = asyncio.create_task(ops.idle_watcher())
     pruning = asyncio.create_task(logprune.pruner())
     ringing = asyncio.create_task(timer_watcher())
+    # Reading the Start menu and the game libraries takes a second or two;
+    # done now, the first "open Fortnite" does not wait for it.
+    apps.warm()
+    # MCP servers start in their own threads: npx can take a while on a
+    # first run, and the server must answer before they are ready.
+    mcpclient.start_all()
+    connections.telegram().on_message = telegram_turn
+    polling = asyncio.create_task(connections.telegram().run())
     log.info("ready on %s:%s", settings.SERVER["host"], settings.SERVER["port"])
     yield
     speech.cancel()
     watcher.cancel()
     pruning.cancel()
     ringing.cancel()
+    polling.cancel()
+    await asyncio.to_thread(mcpclient.stop_all)
     await llm.aclose()
     await ops.shutdown()
     models.unload()
@@ -154,14 +188,16 @@ class TextIn(BaseModel):
     agentic: bool = AGENT["default_agentic"]
 
 
-def reply_stream(user_text: str, agentic: bool, messages=None, actions=None):
+def reply_stream(user_text: str, agentic: bool, messages=None, actions=None,
+                 *, tainted: bool = False,
+                 withhold: frozenset[str] = frozenset(), origin: str = "pc"):
     """Choose between plain streaming and the agentic loop.
 
     A confirmation left pending by a previous turn takes priority: this
     utterance is the user's answer to it, not a new request.
     """
     async def generate():
-        if agent.pending is not None:
+        if agent.answers_pending(origin):
             async for sentence in agent.resolve_pending(user_text, actions):
                 yield sentence
             return
@@ -170,7 +206,10 @@ def reply_stream(user_text: str, agentic: bool, messages=None, actions=None):
         if messages is None:
             messages = memory.messages(user_text)
         if agentic:
-            async for sentence in agent.run(messages, actions):
+            async for sentence in agent.run(messages, actions,
+                                            tainted=tainted,
+                                            withhold=withhold,
+                                            origin=origin):
                 yield sentence
         else:
             async for sentence in llm.stream_sentences(messages):
@@ -179,7 +218,69 @@ def reply_stream(user_text: str, agentic: bool, messages=None, actions=None):
     return generate()
 
 
+class Exchange:
+    """One request and its reply, however it arrived: typed, spoken or from
+    Telegram. The three used to repeat all of this, and drifted: the
+    Telegram copy had no finally, so a turn that failed halfway vanished
+    from the history and from her memory.
+
+    Created when the request is heard, so the chat shows it at once;
+    replies() then wakes the models if needed, streams the answer, and
+    records it, complete or cut off.
+    """
+
+    def __init__(self, user_text: str, via: str, agentic: bool,
+                 note: str = "", **agent_options) -> None:
+        self.user_text = user_text
+        self.via = via
+        self.agentic = agentic
+        self.note = note
+        self.options = agent_options
+        self.spoken: list[str] = []
+        self.actions: list[dict] = []
+        self.messages: list[dict] = []
+        self.id = conversation.next_id()
+        conversation.heard(self.id, user_text, via)
+
+    @property
+    def reply(self) -> str:
+        return speech.join(self.spoken)
+
+    async def replies(self, woke: float | None = None) -> AsyncIterator[str]:
+        """Each sentence as it is ready. `woke` is the wake time when the
+        caller has already brought the models up; otherwise this does."""
+        if woke is None:
+            async with ops.Busy():
+                woke = await ops.ensure_loaded()
+        # Only a voice turn was made to wait in silence; a typed message or
+        # a Telegram one got "just getting my bearings" for nothing.
+        self.messages = memory.messages(
+            self.user_text,
+            turn_note(woke if self.via == "voice" else 0) + self.note)
+        finished = False
+        try:
+            # The whole reply, not just the load: an agentic turn may run for
+            # the full tool timeout, and the idle watcher must not pull the
+            # models out from under it.
+            async with ops.Busy():
+                async for sentence in reply_stream(
+                        self.user_text, self.agentic, self.messages,
+                        self.actions, **self.options):
+                    self.spoken.append(sentence)
+                    conversation.said(self.id, sentence)
+                    yield sentence
+            finished = True
+        finally:
+            if not finished:
+                interrupted(self.id, self.user_text, self.spoken,
+                            self.actions, self.via)
+        await remember(self.user_text, self.reply, self.actions)
+        conversation.record(self.id, self.user_text, self.reply,
+                            via=self.via, tools=self.actions)
+
+
 app.include_router(panel.router)
+app.include_router(connection_routes.router)
 
 
 @app.get("/events")
@@ -221,45 +322,40 @@ async def stt_endpoint(file: UploadFile):
 @app.post("/chat")
 async def chat_endpoint(body: TextIn):
     """Newline-delimited JSON, one object per sentence, as they are produced."""
-    # Shown in the chat before the models are woken, which can take seconds.
-    turn_id = conversation.next_id()
-    conversation.heard(turn_id, body.text, "text")
-    async with ops.Busy():
-        woke = await ops.ensure_loaded()
-    messages = memory.messages(body.text, turn_note(woke))
+    # Heard before the models are woken, which can take seconds.
+    exchange = Exchange(body.text, "text", body.agentic)
 
     async def generate():
         start = time.perf_counter()
         first = None
-        spoken = []
-        actions: list[dict] = []
-        finished = False
-        try:
-            # The whole reply, not just the load, the way /converse does it.
-            # Marked only around ensure_loaded, a reply was in flight with
-            # nothing saying so: an agentic turn may run for the full tool
-            # timeout, and the idle watcher was free to pull the models out
-            # from under it.
-            async with ops.Busy():
-                async for sentence in reply_stream(body.text, body.agentic,
-                                                   messages, actions):
-                    now = (time.perf_counter() - start) * 1000
-                    if first is None:
-                        first = now
-                        log.info("llm first sentence %.0fms", now)
-                    spoken.append(sentence)
-                    conversation.said(turn_id, sentence)
-                    yield json.dumps({"id": turn_id, "sentence": sentence,
-                                      "ms": round(now)}) + "\n"
-            finished = True
-        finally:
-            if not finished:
-                interrupted(turn_id, body.text, spoken, actions, "text")
-        await remember(body.text, " ".join(spoken), actions)
-        conversation.record(turn_id, body.text, " ".join(spoken), via="text",
-                            tools=actions)
+        async with aclosing(exchange.replies()) as sentences:
+            async for sentence in sentences:
+                now = (time.perf_counter() - start) * 1000
+                if first is None:
+                    first = now
+                    log.info("llm first sentence %.0fms", now)
+                yield json.dumps({"id": exchange.id, "sentence": sentence,
+                                  "ms": round(now)}) + "\n"
 
     return StreamingResponse(generate(), media_type="application/x-ndjson")
+
+
+async def telegram_turn(text: str) -> str:
+    """A message from the paired Telegram chat, answered as a text turn.
+
+    Trusted like the PC: only the owner's chat reaches here, and treating it
+    as untrusted made every action ask for a yes that came from the same
+    phone, which protected nothing. PowerShell is still not offered: that
+    is the one thing a lost phone should not reach. A confirmation it asks
+    for is answered by the next message, from wherever it comes.
+    """
+    exchange = Exchange(text, "telegram", settings.CLIENT["use_tools"],
+                        note=TELEGRAM_NOTE,
+                        withhold=frozenset({"shell"}), origin="telegram")
+    async with aclosing(exchange.replies()) as sentences:
+        async for _ in sentences:
+            pass
+    return exchange.reply
 
 
 def interrupted(turn_id: int, user_text: str, spoken: list[str],
@@ -271,7 +367,7 @@ def interrupted(turn_id: int, user_text: str, spoken: list[str],
     the exchange vanished: the model would not know what it had started
     saying, and the chat would not show that anything was asked.
     """
-    reply = " ".join(spoken)
+    reply = speech.join(spoken)
     log.info("turn %d interrupted after %d sentences", turn_id, len(spoken))
     memory.add_turn(user_text, (reply + " [interrupted]").strip(), actions)
     events.publish("conversation")
@@ -372,6 +468,9 @@ async def tools_state():
             for t in listed()
         ],
         "powers": {p: bool(settings.POWERS.get(p)) for p in agent.POWERS},
+        "connections": {name: {"label": c.label, "on": c.on(),
+                               "ready": c.ready()}
+                        for name, c in connections.ALL.items()},
         "max_steps": agent.limits()[0],
         "timeout_s": agent.limits()[1],
         "awaiting_confirmation": agent.pending_view(),
@@ -468,64 +567,45 @@ async def converse(file: UploadFile,
     if not heard:
         raise HTTPException(status_code=400, detail="no speech detected")
 
-    prompt = memory.messages(heard, turn_note(woke))
     # Announced now, before a word of the answer exists: the chat shows what
     # was heard while she is still thinking about it.
-    turn_id = conversation.next_id()
-    conversation.heard(turn_id, heard, "voice")
+    exchange = Exchange(heard, "voice", agentic)
 
     async def generate():
         stream = tts.OpusStream() if format == "opus" else None
         first_sound = None
-        spoken = []
-        actions: list[dict] = []
-        finished = False
-
-        try:
-            # Its own span rather than one carried across the generator
-            # boundary, so a client that hangs up mid-reply still releases
-            # the marker.
-            async with ops.Busy():
-                async for sentence in reply_stream(heard, agentic, prompt, actions):
-                    async with models.gpu_lock:
-                        samples = await asyncio.to_thread(tts.synthesize, sentence)
-                        chunk = (await asyncio.to_thread(stream.push, samples)
-                                 if stream else tts.to_pcm16(samples))
-                    spoken.append(sentence)
-                    conversation.said(turn_id, sentence)
-                    if not chunk:
-                        # The Ogg muxer emits whole pages; until one is
-                        # complete there is nothing to send, so this is not
-                        # yet first sound.
-                        continue
-                    if first_sound is None:
-                        first_sound = (time.perf_counter() - start) * 1000
-                        log.info("FIRST SOUND %.0fms (first bytes on the wire)",
-                                 first_sound)
-                    yield chunk
-
-                if stream:
-                    tail = await asyncio.to_thread(stream.close)
-                    if tail:
-                        yield tail
-            finished = True
-        finally:
-            # The client hung up: pressed the talk key to interrupt, most
-            # likely. What was said so far is kept, marked as cut off.
-            if not finished:
-                interrupted(turn_id, heard, spoken, actions, "voice")
-
-        await remember(heard, " ".join(spoken), actions)
-        conversation.record(turn_id, heard, " ".join(spoken), via="voice",
-                            tools=actions)
+        # A reply that is mostly code says so once, instead of going quiet.
+        noted_code = False
+        async with aclosing(exchange.replies(woke)) as sentences:
+            async for sentence in sentences:
+                voice = sentence
+                if speech.is_code(sentence) and not noted_code:
+                    voice, noted_code = speech.CODE_NOTE, True
+                async with models.gpu_lock:
+                    samples = await asyncio.to_thread(tts.synthesize, voice)
+                    chunk = (await asyncio.to_thread(stream.push, samples)
+                             if stream else tts.to_pcm16(samples))
+                if not chunk:
+                    # The Ogg muxer emits whole pages; until one is complete
+                    # there is nothing to send, so this is not yet first sound.
+                    continue
+                if first_sound is None:
+                    first_sound = (time.perf_counter() - start) * 1000
+                    log.info("FIRST SOUND %.0fms (first bytes on the wire)",
+                             first_sound)
+                yield chunk
+        if stream:
+            tail = await asyncio.to_thread(stream.close)
+            if tail:
+                yield tail
         total = (time.perf_counter() - start) * 1000
         turnlog.record(
-            heard=heard, messages=prompt, spoken=spoken, agentic=agentic,
-            tools=actions,
+            heard=heard, messages=exchange.messages, spoken=exchange.spoken,
+            agentic=agentic, tools=exchange.actions,
             timings={"upload": t_upload, "stt": t_stt - t_upload,
                      "first_sound": first_sound or 0, "total": total},
         )
-        log.info("reply complete %.0fms %r", total, " ".join(spoken))
+        log.info("reply complete %.0fms %r", total, exchange.reply)
 
     if format == "pcm":
         return StreamingResponse(

@@ -381,7 +381,6 @@ def shell_tasks(root: Path) -> list[dict]:
                   "check": check, "reference": reference, "offline": offline})
 
     W = "in my workspace"
-    app_log = read(R / "Logs/app.log") if (R / "Logs/app.log").exists() else ""
     names = [n.strip() for n in "Zoe adam Milo zoe Bea Milo Carl adam Dina".split()]
 
     # ---- looking --------------------------------------------------------

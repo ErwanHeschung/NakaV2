@@ -12,8 +12,11 @@ one "Yes, go ahead." — what a person would say — and scores half: needing it
 means she asked a permission the harness asks anyway, or described instead
 of doing.
 
+Connection tasks (eval/connection_tasks.py) run against fake services, so
+they need no accounts and change nothing real.
+
 Usage:
-    uv run python eval/agent_bench.py LABEL [web|shell] [task-id ...]
+    uv run python eval/agent_bench.py LABEL [web|shell|conn|apps|assist] [task-id ...]
 
 Writes eval/bench/LABEL.json and prints a line per task and a summary.
 eval/bench_report.py compares runs.
@@ -38,8 +41,17 @@ from server import agent, ops, settings  # noqa: E402
 from server.memory import memory  # noqa: E402
 
 import bench_tasks  # noqa: E402
+import app_tasks  # noqa: E402
+import assist_tasks  # noqa: E402
+import connection_tasks  # noqa: E402
 
 SANDBOX = Path(tempfile.gettempdir()) / "naka-bench"
+# Notes for the connection tasks, never the person's own.
+NOTES = Path(tempfile.gettempdir()) / "naka-bench-notes"
+# Inside the workspace, where find_files looks too: a document the model
+# goes looking for by hand must be findable, as a real one would be.
+DOCS = SANDBOX / "Documents"
+KINDS = ("web", "shell", "conn", "apps", "assist")
 OUT = ROOT / "eval" / "bench"
 # Shared between checkouts, so a baseline run from a worktree and a run of the
 # current code see the same results for the same query.
@@ -78,15 +90,24 @@ def cache_searches() -> None:
     web._duckduckgo = cached
 
 
-async def play(text: str, record: dict) -> list[str]:
+async def play(text: str, record: dict, origin: str = "pc") -> list[str]:
     """One spoken request, confirmations answered yes."""
     note = f"Right now it is {datetime.now().strftime('%H:%M on %A %d %B %Y')}."
     actions: list[dict] = []
-    spoken = [s async for s in agent.run(memory.messages(text, note), actions)]
+    if origin == "telegram":
+        # As server/main.py plays a message from the phone.
+        from server.main import TELEGRAM_NOTE
+        note += TELEGRAM_NOTE
+        run = agent.run(memory.messages(text, note), actions,
+                        withhold=frozenset({"shell"}), origin="telegram")
+    else:
+        run = agent.run(memory.messages(text, note), actions)
+    spoken = [s async for s in run]
     while agent.pending is not None and record["confirmations"] < 8:
         record["confirmations"] += 1
         spoken += [s async for s in agent.resolve_pending("yes", actions)]
-    memory.add_turn(text, " ".join(spoken), actions)
+    from server.speech import join
+    memory.add_turn(text, join(spoken), actions)
     for a in actions:
         try:
             arguments = json.loads(a["arguments"] or "{}")
@@ -99,6 +120,14 @@ async def play(text: str, record: dict) -> list[str]:
 
 async def run_task(task: dict) -> dict:
     bench_tasks.build(SANDBOX)
+    if task["kind"] == "apps":
+        app_tasks.setup()
+    if task["kind"] == "assist":
+        assist_tasks.setup(DOCS)
+    if task["kind"] == "conn":
+        connection_tasks.setup(NOTES)
+        if task.get("before"):
+            task["before"]()
     memory.recent.clear()
     memory.pending.clear()
     memory.summary = ""
@@ -109,14 +138,16 @@ async def run_task(task: dict) -> dict:
     started = time.perf_counter()
     spoken: list[str] = []
     try:
+        origin = task.get("origin", "pc")
         for text in task["ask"]:
             record["turns"] += 1
-            spoken = await play(text, record)
-            record["said"] += " ".join(spoken) + " "
+            spoken = await play(text, record, origin)
+            record["said"] += " ".join(s.strip() for s in spoken) + " "
         score = 1.0 if task["check"](record) else 0.0
         if not score and spoken and spoken[-1].rstrip().endswith("?"):
             record["turns"] += 1
-            record["said"] += " ".join(await play("Yes, go ahead.", record))
+            record["said"] += " ".join(await play("Yes, go ahead.", record,
+                                                  origin))
             score = 0.5 if task["check"](record) else 0.0
     except Exception as e:  # a crash is a result too: it is what she did
         record["error"] = f"{type(e).__name__}: {e}"
@@ -131,9 +162,11 @@ async def run_task(task: dict) -> dict:
 
 def select(args: list[str]) -> list[dict]:
     bench_tasks.build(SANDBOX)
-    tasks = bench_tasks.WEB + bench_tasks.shell_tasks(SANDBOX)
-    kinds = {a for a in args if a in ("web", "shell")}
-    ids = {a for a in args if a not in ("web", "shell")}
+    tasks = (bench_tasks.WEB + bench_tasks.shell_tasks(SANDBOX)
+             + connection_tasks.tasks() + app_tasks.tasks()
+             + assist_tasks.tasks())
+    kinds = {a for a in args if a in KINDS}
+    ids = {a for a in args if a not in KINDS}
     if kinds:
         tasks = [t for t in tasks if t["kind"] in kinds]
     if ids:
@@ -146,6 +179,18 @@ async def main() -> None:
     tasks = select(rest)
     settings.POWERS.update(web=True, shell=True, workspace=str(SANDBOX),
                            brave_api_key="")
+    from server.tools import apps, builtin, clipboard, registry
+    registry.NOTES_DIR = builtin.NOTES_DIR = NOTES
+    # Nothing here may reach the person's own things: now that opening,
+    # closing and copying run without asking, a web or shell task that
+    # decided to use them would do it for real. The connection tasks switch
+    # fake services on for themselves.
+    settings.CONNECTIONS.clear()
+    apps.launch = lambda app: None
+    apps.close = lambda pids: None
+    apps.open_windows = lambda: []
+    clipboard.read = lambda: ""
+    clipboard.write = lambda text: None
     OUT.mkdir(exist_ok=True)
     SEARCH_CACHE.parent.mkdir(parents=True, exist_ok=True)
     cache_searches()
@@ -173,7 +218,7 @@ async def main() -> None:
         if started_llm:
             await ops._stop_llm()
 
-    for kind in ("web", "shell"):
+    for kind in KINDS:
         part = [r for r in results if r["kind"] == kind]
         if part:
             print(f"{label} {kind}: {sum(r['score'] for r in part):g} / "

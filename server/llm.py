@@ -6,22 +6,21 @@ streaming API, so splitting on sentence boundaries is the only way to start
 speaking before the whole reply exists.
 """
 
+import asyncio
 import json
 import logging
-import re
+import time
 from collections.abc import AsyncIterator
 
 import httpx
 
-from . import settings
+from . import settings, speech
 
 log = logging.getLogger("naka.llm")
 
-# A run of terminators followed by whitespace. The run keeps "..." intact
-# instead of splitting it into three empty sentences, and requiring the
-# trailing space means a decimal ("18.5") or a mid-stream token that merely
-# ends in a dot is not mistaken for the end of a sentence.
-SENTENCE_END = re.compile(r"[.!?]+[\"')\]]*\s")
+# Replies are cut into segments by speech.Segmenter: at the end of a
+# sentence as before, and also at line breaks and around code blocks, with
+# the whitespace kept so the chat can show the Markdown as it was written.
 
 
 # One client for the process, not one per call.
@@ -45,6 +44,54 @@ def client() -> httpx.AsyncClient:
     return _client
 
 
+FIRST_OUTPUT_SECONDS = 8.0
+
+# llama.cpp's own account of the last streamed generation: how many prompt
+# tokens it had to compute, how many came from its cache, and how long the
+# prompt took. Logged, and read by eval/pipeline_bench.py.
+last_timings: dict = {}
+
+
+def _note_timings(chunk: dict) -> None:
+    timings = chunk.get("timings")
+    if not timings:
+        return
+    last_timings.clear()
+    last_timings.update(timings)
+    log.info("llm prompt: %s new tokens, %s cached, %.0fms",
+             timings.get("prompt_n"), timings.get("cache_n"),
+             timings.get("prompt_ms", 0))
+
+
+# The token that opens Gemma's thinking channel, by model file. With thinking
+# off the template already holds an empty thought block, and on some prompts
+# the model kept opening another one, <|channel>thought<channel|> over and
+# over to the length limit: llama.cpp strips those, so 3,000 tokens and 40
+# seconds came back as silence. Banned only on a retry of that case, never
+# by default: after a tool result the model opens the channel as a matter of
+# course, and banning it everywhere broke two answers in three (bench v8).
+# Looked up rather than hard-coded, since its id belongs to the model.
+_channel_bias: dict[str, dict] = {}
+
+
+async def _bias() -> dict:
+    if settings.LLM.get("enable_thinking"):
+        return {}
+    model = settings.LLM.get("model_file", "")
+    if model not in _channel_bias:
+        try:
+            response = await client().post(
+                f"{settings.LLM['url'].rstrip('/')}/tokenize",
+                json={"content": "<|channel>", "parse_special": True})
+            tokens = response.json().get("tokens", [])
+        except (httpx.HTTPError, ValueError):
+            return {}
+        # One token means the model has it as a special token; any other
+        # model spells it out in ordinary pieces and must not lose them.
+        _channel_bias[model] = {str(tokens[0]): -100} if len(tokens) == 1 else {}
+    return _channel_bias[model]
+
+
 async def aclose() -> None:
     global _client
     if _client is not None:
@@ -66,32 +113,13 @@ def _body(messages: list[dict], stream: bool,
 
 
 async def stream_sentences(messages: list[dict]) -> AsyncIterator[str]:
-    """Yield complete sentences as soon as their closing punctuation arrives."""
-    url = f"{settings.LLM['url'].rstrip('/')}/v1/chat/completions"
-    buffer = ""
+    """Yield complete sentences as soon as their closing punctuation arrives.
 
-    async with client().stream("POST", url, json=_body(messages, True)) as response:
-        response.raise_for_status()
-        async for line in response.aiter_lines():
-            if not line.startswith("data: "):
-                continue
-            payload = line[6:]
-            if payload == "[DONE]":
-                break
-            delta = json.loads(payload)["choices"][0].get("delta", {})
-            piece = delta.get("content")
-            if not piece:
-                continue
-            buffer += piece
-            while (match := SENTENCE_END.search(buffer)) is not None:
-                sentence, buffer = buffer[: match.end()], buffer[match.end():]
-                sentence = sentence.strip()
-                if sentence:
-                    yield sentence
-
-    tail = buffer.strip()
-    if tail:
-        yield tail
+    The tool-less case of stream_with_tools, which does the same parsing.
+    """
+    async for kind, payload in stream_with_tools(messages, []):
+        if kind == "sentence":
+            yield payload
 
 
 async def complete(messages: list[dict]) -> str:
@@ -102,7 +130,8 @@ async def complete(messages: list[dict]) -> str:
 
 
 async def stream_with_tools(messages: list[dict], tools: list[dict],
-                            max_tokens: int | None = None):
+                            max_tokens: int | None = None,
+                            ban_channel: bool = False):
     """One turn with tools offered, streamed.
 
     Yields ("sentence", str) as sentences complete and, at the end,
@@ -120,28 +149,60 @@ async def stream_with_tools(messages: list[dict], tools: list[dict],
     """
     url = f"{settings.LLM['url'].rstrip('/')}/v1/chat/completions"
     body = _body(messages, stream=True, max_tokens=max_tokens)
+    if ban_channel:
+        body["logit_bias"] = await _bias()
     if tools:
         body["tools"] = tools
         body["tool_choice"] = "auto"
 
-    buffer = ""
+    segmenter = speech.Segmenter()
     finish = None
     # Merged by index: arguments arrive a fragment at a time across deltas.
     partial: dict[int, dict] = {}
 
     async with client().stream("POST", url, json=body) as response:
         response.raise_for_status()
-        async for line in response.aiter_lines():
+        lines = response.aiter_lines()
+        # Nothing is sent while the model loops on its thinking channel, and
+        # it went on for 63 seconds. A real reply's first word or call comes
+        # within a second of the prompt, so eight with nothing is that loop:
+        # the request is dropped, which stops it, and reported as an empty
+        # reply at the limit, which the agent knows how to retry.
+        deadline = time.perf_counter() + FIRST_OUTPUT_SECONDS
+        produced = False
+        while True:
+            try:
+                if produced:
+                    line = await anext(lines)
+                else:
+                    line = await asyncio.wait_for(
+                        anext(lines), max(0.1, deadline - time.perf_counter()))
+            except StopAsyncIteration:
+                break
+            except TimeoutError:
+                log.warning("no output within %ss; dropping the request",
+                            FIRST_OUTPUT_SECONDS)
+                yield "finish", "length"
+                return
             if not line.startswith("data: "):
                 continue
             payload = line[6:]
             if payload == "[DONE]":
                 break
-            choice = json.loads(payload)["choices"][0]
+            chunk = json.loads(payload)
+            _note_timings(chunk)
+            if not chunk.get("choices"):
+                continue
+            choice = chunk["choices"][0]
             finish = choice.get("finish_reason") or finish
             delta = choice.get("delta", {})
 
             for call in delta.get("tool_calls") or []:
+                if call.get("index", 0) not in partial and \
+                        (call.get("function") or {}).get("name"):
+                    # The name arrives first; the arguments may take many
+                    # seconds more to write.
+                    yield "calling", call["function"]["name"]
                 slot = partial.setdefault(
                     call.get("index", 0),
                     {"id": "", "function": {"name": "", "arguments": ""}},
@@ -155,30 +216,32 @@ async def stream_with_tools(messages: list[dict], tools: list[dict],
                     slot["function"]["arguments"] += function["arguments"]
 
             piece = delta.get("content")
+            if piece or delta.get("tool_calls"):
+                produced = True
             if not piece:
                 continue
-            buffer += piece
-            while (match := SENTENCE_END.search(buffer)) is not None:
-                sentence, buffer = buffer[: match.end()], buffer[match.end():]
-                sentence = sentence.strip()
-                if sentence:
-                    yield "sentence", sentence
+            for segment in segmenter.feed(piece):
+                yield "sentence", segment
 
-    tail = buffer.strip()
-    if tail:
-        yield "sentence", tail
+    for segment in segmenter.flush():
+        yield "sentence", segment
     if partial:
         yield "tool_calls", [partial[i] for i in sorted(partial)]
     yield "finish", finish
 
 
+async def prefill(messages: list[dict], tools: list[dict]) -> None:
+    """One token's generation, for the side effect of a cached prompt."""
+    url = f"{settings.LLM['url'].rstrip('/')}/v1/chat/completions"
+    body = _body(messages, stream=False, max_tokens=1)
+    if tools:
+        body["tools"] = tools
+    start = time.perf_counter()
+    (await client().post(url, json=body)).raise_for_status()
+    log.info("prompt prefilled in %.0fms", (time.perf_counter() - start) * 1000)
+
+
 def split_sentences(text: str) -> list[str]:
     """Split a finished reply the same way the streaming path splits a live one."""
-    out, buffer = [], text
-    while (match := SENTENCE_END.search(buffer)) is not None:
-        sentence, buffer = buffer[: match.end()].strip(), buffer[match.end():]
-        if sentence:
-            out.append(sentence)
-    if buffer.strip():
-        out.append(buffer.strip())
-    return out
+    segmenter = speech.Segmenter()
+    return segmenter.feed(text) + segmenter.flush()
